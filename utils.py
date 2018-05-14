@@ -25,8 +25,8 @@ from nltk.tokenize import word_tokenize, sent_tokenize
 from tqdm import tqdm
 
 logger = logging.getLogger("Data preprocessing")
-logger.setLevel(logging.DEBUG)
-logging.basicConfig(format='%(levelname)s:%(message)s', level=logging.DEBUG)
+logger.setLevel(logging.INFO)
+logging.basicConfig(format='%(levelname)s:%(message)s', level=logging.INFO)
 
 
 class SpecialTokens:
@@ -95,12 +95,13 @@ def make_caption_word_dict(root = '/Users/hanozbhathena/Documents/coco/data/val2
         words_set= words_set.union(tokens)
     
     word_list= list(words_set)
-    word_to_idx= dict(zip(word_list, range(len(word_list))))
-    return word_to_idx, caption_dset
+    word_to_idx= dict(zip(word_list, range(1, 1 + len(word_list))))
+    idx_to_word= {v:k for k,v in word_to_idx.items()}
+    assert 0 not in idx_to_word, "PAD token should be 0 index"
+    return word_to_idx, idx_to_word, caption_dset
 
 def loadWordVectors(tokens, filepath="/Users/hanozbhathena/Documents/coco/data/glove.840B.300d.txt", dimensions=300):
     """Read pretrained GloVe vectors"""
-    wordVectors = np.zeros((len(tokens), dimensions))
     dic = {}
     words= []
     with open(filepath) as ifs:
@@ -126,11 +127,15 @@ def loadWordVectors(tokens, filepath="/Users/hanozbhathena/Documents/coco/data/g
     dic[SpecialTokens.OOV]= np.random.uniform(low=-0.25, high=0.25, size=dimensions)
     dic[SpecialTokens.PAD]= np.random.uniform(low=-0.25, high=0.25, size=dimensions)
     
+    tokens[SpecialTokens.PAD]= 0
     tokens[SpecialTokens.START]= len(tokens)
     tokens[SpecialTokens.END]= len(tokens)
     tokens[SpecialTokens.OOV]= len(tokens)
-    tokens[SpecialTokens.PAD]= len(tokens)
     
+    tokens_inv= {v:k for k,v in tokens.items()}
+    
+    pdb.set_trace()
+    wordVectors = np.zeros((len(tokens), dimensions))
     oov_count= 0
     for word, ind in tokens.items():
         try:
@@ -140,7 +145,7 @@ def loadWordVectors(tokens, filepath="/Users/hanozbhathena/Documents/coco/data/g
             wordVectors[ind]= dic[SpecialTokens.OOV]
     logging.info("{} words from COCO were OOV for Glove".format(oov_count))
     logging.info("word vectors loaded using" + filepath)
-    return wordVectors, tokens
+    return wordVectors, tokens, tokens_inv
 
 def clean_text(text):
     #Logic to clean text: review from Keras tutorial or some COCO captions tutorial online
