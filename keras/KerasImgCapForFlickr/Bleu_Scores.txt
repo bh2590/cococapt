@@ -1,0 +1,16 @@
+model-ep001-loss4.513-val_loss4.062.h5
+model-ep002-loss3.864-val_loss3.887.h5
+model-ep003-loss3.679-val_loss3.853
+model-ep004-loss3.586-val_loss3.843.h5
+
+4 epoch bleu score:
+BLEU-1: 0.551256
+BLEU-2: 0.298997
+BLEU-3: 0.204707
+BLEU-4: 0.096226
+
+
+Example image predictions:
+example(viola class) - startseq man in black shirt is standing in front of the wall endseq
+example1(me and dog) - startseq two people are standing on the beach endseq
+example2(me amidst flowers) - startseq two girls are playing in the snow endseq
