@@ -195,7 +195,7 @@ if __name__ == "__main__":
                     torch.save(encoder.state_dict(), os.path.join(
                         args.model_path, 'encoder-{}-{}.ckpt'.format(epoch+1, i_batch+1)))
                 
-                break
+#                break
             
             with torch.no_grad():
                 pdb.set_trace()
@@ -208,8 +208,8 @@ if __name__ == "__main__":
                     predictions_idx= decoder.inference(img_features)
 #                    predictions_idx= predictions_idx.numpy()
                     val_gen_inds.append(predictions_idx)
-                    if i_batch >= 2:
-                        break
+#                    if i_batch >= 2:
+#                        break
                 pdb.set_trace()
                 val_gen_inds= torch.cat(val_gen_inds, dim=0)
                 val_gen_inds= val_gen_inds.numpy()
@@ -218,7 +218,7 @@ if __name__ == "__main__":
                     temp= []
                     for ind in sent:
                         word= idx_to_word[ind]
-                        if word == SpecialTokens.END:
+                        if word == SpecialTokens.END or word == SpecialTokens.PAD:
                             break
                         temp.append(word)
                     val_gen_words.append(' '.join(temp))
