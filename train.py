@@ -28,7 +28,7 @@ from ipdb import slaunch_ipdb_on_exception
 import ipdb as pdb
 from saved_data import SavedData
 import pickle
-from utils import SpecialTokens, MyCOCODset, make_caption_word_dict, loadWordVectors
+from utils import SpecialTokens, MyCOCODset, make_caption_word_dict, loadWordVectors, CocoCaptions_Cust
 from model import Encoder, Decoder, fn
 
 import ast
@@ -80,7 +80,7 @@ def get_dataloader(token_dict, mode= 'train'):
                 transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                      std=[0.229, 0.224, 0.225])
             ])
-        caption_dset = dset.CocoCaptions(root= args.train_image_dir, 
+        caption_dset = CocoCaptions_Cust(root= args.train_image_dir, 
                                          annFile= args.train_caption_path,
                                          transform= data_transform)
         #Subclass COCO datset
@@ -97,7 +97,7 @@ def get_dataloader(token_dict, mode= 'train'):
                 transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                      std=[0.229, 0.224, 0.225])
             ])
-        caption_dset = dset.CocoCaptions(root= args.val_image_dir, 
+        caption_dset = CocoCaptions_Cust(root= args.val_image_dir, 
                                          annFile= args.val_caption_path,
                                          transform= data_transform)
         #Subclass COCO datset
@@ -139,7 +139,7 @@ if __name__ == "__main__":
                         transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                              std=[0.229, 0.224, 0.225])
                     ])
-                caption_dset = dset.CocoCaptions(root= args.train_image_dir, 
+                caption_dset = CocoCaptions_Cust(root= args.train_image_dir, 
                                                  annFile= args.train_caption_path,
                                                  transform= data_transform)
         random_img, _= caption_dset[np.random.randint(1000)]
@@ -167,7 +167,7 @@ if __name__ == "__main__":
             #Training
             encoder.linear.train()
             decoder.train()
-            for i_batch, (img_batch, targets_batch, rlen_batch) in enumerate(train_dataloader):
+            for i_batch, (img_batch, targets_batch, rlen_batch, idx_batch) in enumerate(train_dataloader):
                 img_batch, targets_batch, rlen_batch= (img_batch.to(device), 
                                                        targets_batch.to(device), 
                                                        rlen_batch.to(device))

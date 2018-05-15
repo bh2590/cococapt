@@ -23,6 +23,7 @@ import torchvision.transforms as transforms
 from torch.utils.data import Dataset, DataLoader
 from nltk.tokenize import word_tokenize, sent_tokenize
 from tqdm import tqdm
+from PIL import Image
 
 logger = logging.getLogger("Data preprocessing")
 logger.setLevel(logging.INFO)
@@ -85,12 +86,12 @@ def make_caption_word_dict(root = '/Users/hanozbhathena/Documents/coco/data/val2
             #                     std=[0.229, 0.224, 0.225])
         ])
     
-    caption_dset = dset.CocoCaptions(root= root, annFile= annFile,
+    caption_dset = CocoCaptions_Cust(root= root, annFile= annFile,
                                      transform= data_transform)
     
     words_set= set()
     for i in tqdm(range(len(caption_dset))):
-        _, caption= caption_dset[i]
+        _, caption, _= caption_dset[i]
         tokens= set(word_tokenize(' '.join(caption).lower()))
         words_set= words_set.union(tokens)
     
@@ -160,16 +161,52 @@ class MyCOCODset(Dataset):
         self.pad_id= pad_id
     
     def __getitem__(self, ind):
-        img, str_caption= self.coco_dset[ind]
+        img, str_caption, img_idx= self.coco_dset[ind]
         str_caption= str_caption[np.random.randint(len(str_caption))].lower()
         ind_caption= [self.word_to_idx[w] for w in word_tokenize(clean_text(str_caption))]
         real_len= len(ind_caption)
         ind_caption= ind_caption + [self.pad_id] * (self.max_seq_len - real_len)
-        return img, torch.tensor(ind_caption, dtype= torch.long), real_len
+        return img, torch.tensor(ind_caption, dtype= torch.long), real_len, img_idx
     
     def __len__(self):
         return len(self.coco_dset)
 
+
+class CocoCaptions_Cust(data.Dataset):
+    def __init__(self, root, annFile, transform=None, target_transform=None):
+        from pycocotools.coco import COCO
+        self.root = os.path.expanduser(root)
+        self.coco = COCO(annFile)
+        self.ids = list(self.coco.imgs.keys())
+        self.transform = transform
+        self.target_transform = target_transform
+
+    def __getitem__(self, index):
+        """
+        Args:
+            index (int): Index
+        Returns:
+            tuple: Tuple (image, target). target is a list of captions for the image.
+        """
+        coco = self.coco
+        img_id = self.ids[index]
+        ann_ids = coco.getAnnIds(imgIds=img_id)
+        anns = coco.loadAnns(ann_ids)
+        target = [ann['caption'] for ann in anns]
+
+        path = coco.loadImgs(img_id)[0]['file_name']
+
+        img = Image.open(os.path.join(self.root, path)).convert('RGB')
+        if self.transform is not None:
+            img = self.transform(img)
+
+        if self.target_transform is not None:
+            target = self.target_transform(target)
+
+        return img, target, img_id
+
+    def __len__(self):
+        return len(self.ids)
 
 def main(filename= 'saved_data.pickle'):
     tokens= make_caption_word_dict()
