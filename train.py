@@ -31,6 +31,7 @@ import pickle
 from utils import SpecialTokens, MyCOCODset, make_caption_word_dict, loadWordVectors, CocoCaptions_Cust
 from model import Encoder, Decoder, fn
 
+from pprint import pprint
 import ast
 import argparse
 parser = argparse.ArgumentParser()
@@ -162,9 +163,10 @@ if __name__ == "__main__":
         loss_function = nn.CrossEntropyLoss(reduce= False)
         all_params= get_trainable_params(list(decoder.parameters())) + get_trainable_params(list(encoder.linear.parameters()))
         optimizer = optim.Adam(all_params, lr= args.learning_rate)
-        pdb.set_trace()
+#        pdb.set_trace()
         for epoch in range(args.num_epochs):
             #Training
+            pdb.set_trace()
             encoder.linear.train()
             decoder.train()
             for i_batch, (img_batch, targets_batch, rlen_batch, idx_batch) in enumerate(train_dataloader):
@@ -198,8 +200,9 @@ if __name__ == "__main__":
 #                break
             
             with torch.no_grad():
-                pdb.set_trace()
+#                pdb.set_trace()
                 val_gen_inds= []
+                idx_list= []
                 for i_batch, (img_batch, targets_batch, rlen_batch, idx_batch) in enumerate(val_dataloader):
                     img_batch, targets_batch, rlen_batch= (img_batch.to(device), 
                                                            targets_batch.to(device), 
@@ -208,19 +211,24 @@ if __name__ == "__main__":
                     predictions_idx= decoder.inference(img_features)
 #                    predictions_idx= predictions_idx.numpy()
                     val_gen_inds.append(predictions_idx)
+                    idx_list.append(idx_batch)
 #                    if i_batch >= 2:
 #                        break
-                pdb.set_trace()
+#                pdb.set_trace()
                 val_gen_inds= torch.cat(val_gen_inds, dim=0)
+                idx_concat= torch.cat(idx_list, dim= 0).numpy()
                 val_gen_inds= val_gen_inds.numpy()
-                val_gen_words= []
-                for sent in val_gen_inds:
+                
+                val_gen_inds_dict= dict(zip(idx_concat, val_gen_inds))
+                val_gen_words_dict= {}
+                for key, sent in val_gen_inds_dict.items():
                     temp= []
                     for ind in sent:
                         word= idx_to_word[ind]
                         if word == SpecialTokens.END or word == SpecialTokens.PAD:
                             break
                         temp.append(word)
-                    val_gen_words.append(' '.join(temp))
-                #Send val_gen_words to coco validation
+                    val_gen_words_dict[key]= ' '.join(temp)
+                
+                #Send val_gen_words_dict to coco validation
 
