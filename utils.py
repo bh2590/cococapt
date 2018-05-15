@@ -172,7 +172,7 @@ class MyCOCODset(Dataset):
         return len(self.coco_dset)
 
 
-class CocoCaptions_Cust(data.Dataset):
+class CocoCaptions_Cust(Dataset):
     def __init__(self, root, annFile, transform=None, target_transform=None):
         from pycocotools.coco import COCO
         self.root = os.path.expanduser(root)

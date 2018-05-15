@@ -5,7 +5,7 @@ Created on Mon May 14 16:51:07 2018
 
 @author: hanozbhathena
 """
-
+import os
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -34,7 +34,7 @@ from model import Encoder, Decoder, fn
 import ast
 import argparse
 parser = argparse.ArgumentParser()
-parser.add_argument('--model_path', type=str, default='models/' , help='path for saving trained models')
+parser.add_argument('--model_path', type=str, default='./weights/' , help='path for saving trained models')
 parser.add_argument('--crop_size', type=int, default=224 , help='size for randomly cropping images')
 parser.add_argument('--glove_path', type=str, default='/Users/hanozbhathena/Documents/coco/data/glove.840B.300d.txt', 
                     help='path for pretrained glove embeddings')
@@ -142,7 +142,7 @@ if __name__ == "__main__":
                 caption_dset = CocoCaptions_Cust(root= args.train_image_dir, 
                                                  annFile= args.train_caption_path,
                                                  transform= data_transform)
-        random_img, _= caption_dset[np.random.randint(1000)]
+        random_img, _, _= caption_dset[np.random.randint(1000)]
         #To get the linear proj size for encoder
         resnet18 = models.resnet18(pretrained=True)
         random_img= fn(resnet18, random_img.unsqueeze(0))
@@ -150,7 +150,7 @@ if __name__ == "__main__":
         #set device
         device = torch.device("cuda" if args.use_cuda else "cpu")
         #Construct encoder and decoder graphs
-        encoder= Encoder(resnet18, img_feature_size, args.hidden_size).to(device)
+        encoder= Encoder(resnet18, img_feature_size, args.embed_size).to(device)
         decoder= Decoder(emb_matrix, len(emb_matrix), args.embed_size, args.num_layers, 
                          args.hidden_size, word_to_idx).to(device)
         
@@ -182,8 +182,45 @@ if __name__ == "__main__":
                 loss.backward()
                 optimizer.step()
             
-    # =============================================================================
-    #         Do validation here and save model if beats validation
-    # =============================================================================
-    
+                # Print log info
+                if i_batch % args.log_step == 0:
+                    print('Epoch [{}/{}], Step {}, Loss: {:.4f}, Perplexity: {:5.4f}'
+                          .format(epoch, args.num_epochs, i_batch, loss.item(), np.exp(loss.item()))) 
+                    
+                # Save the model checkpoints
+                if (i_batch+1) % args.save_step == 0:
+                    #Later make this to save only after running eval and if better than best_score
+                    torch.save(decoder.state_dict(), os.path.join(
+                        args.model_path, 'decoder-{}-{}.ckpt'.format(epoch+1, i_batch+1)))
+                    torch.save(encoder.state_dict(), os.path.join(
+                        args.model_path, 'encoder-{}-{}.ckpt'.format(epoch+1, i_batch+1)))
+                
+                break
+            
+            with torch.no_grad():
+                pdb.set_trace()
+                val_gen_inds= []
+                for i_batch, (img_batch, targets_batch, rlen_batch, idx_batch) in enumerate(val_dataloader):
+                    img_batch, targets_batch, rlen_batch= (img_batch.to(device), 
+                                                           targets_batch.to(device), 
+                                                           rlen_batch.to(device))
+                    img_features= encoder(img_batch)
+                    predictions_idx= decoder.inference(img_features)
+#                    predictions_idx= predictions_idx.numpy()
+                    val_gen_inds.append(predictions_idx)
+                    if i_batch >= 2:
+                        break
+                pdb.set_trace()
+                val_gen_inds= torch.cat(val_gen_inds, dim=0)
+                val_gen_inds= val_gen_inds.numpy()
+                val_gen_words= []
+                for sent in val_gen_inds:
+                    temp= []
+                    for ind in sent:
+                        word= idx_to_word[ind]
+                        if word == SpecialTokens.END:
+                            break
+                        temp.append(word)
+                    val_gen_words.append(' '.join(temp))
+                #Send val_gen_words to coco validation
 

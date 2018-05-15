@@ -35,6 +35,10 @@ class Decoder(nn.Module):
         super(Decoder, self).__init__()
         self.batch_first= batch_first
         self.max_seq_len= max_seq_len
+        self.num_layers= num_layers
+        self.bidirectional= bidirectional
+        self.num_directions= 1 if bidirectional == False else 2
+        self.output_size= output_size
         self.emb_layer= nn.Embedding(vocab_size, word_vec_size)
         self.emb_layer.weight= nn.Parameter(torch.from_numpy(emb_mat.astype(np.float32)), 
                                             requires_grad= trainable_embeddings)
@@ -44,26 +48,28 @@ class Decoder(nn.Module):
         self.start_id= torch.tensor(word_to_idx[SpecialTokens.START], dtype= torch.long)
     
     def forward(self, img_rep, targets, real_lens, is_train= True):
-        pdb.set_trace()
-        start_batch= self.start_id.repeat(targets.size()[0], 1)
+#        pdb.set_trace()
+        start_batch= img_rep.unsqueeze(1)
         if is_train == True: #replace with self.training later
-            teacher_inps= torch.cat([start_batch, targets[:, :-1]], dim= 1)
-            emb_inps= self.emb_layer(teacher_inps)
-#            real_lens+= 1
+            teacher_inps= targets[:, :-1]
+            emb_inps= torch.cat([start_batch, self.emb_layer(teacher_inps)], dim= 1)
+            real_lens+= 1
+            real_lens= real_lens.clamp(0, self.max_seq_len)
             real_lens_sorted, idx = real_lens.sort(0, descending=True)
             emb_inps_sorted = emb_inps[idx]
+            h_0= torch.zeros((self.num_layers * self.num_directions, img_rep.size(0), self.output_size))
             packed_seq_x= pack_padded_sequence(emb_inps_sorted, real_lens_sorted, batch_first= self.batch_first)
-            h0= img_rep.unsqueeze(0)
-            packed_out, packed_h_t= self.gru_layer(packed_seq_x, h0)
+            packed_out, packed_h_t= self.gru_layer(packed_seq_x, h_0)
             unpacked_out, _= pad_packed_sequence(packed_out, batch_first= self.batch_first, 
                                                  total_length= targets.size()[1])
             _, orig_idx = idx.sort(0)
-            final_out = unpacked_out[orig_idx]
-            return self.vocab_project(final_out)
+            out = unpacked_out[orig_idx]
+            final_out= self.vocab_project(out)
+            return final_out
     
     def inference(self, img_rep):
-        inp= self.start_id.repeat(img_rep.size()[0], 1)
-        state= img_rep.unsqueeze(0)
+        inp= img_rep.unsqueeze(1)
+        state= torch.zeros((self.num_layers * self.num_directions, inp.size(0), self.output_size))
         word_ind_list= []
         for step in range(self.max_seq_len):
             output, state= self.gru_layer(inp, state)
@@ -71,8 +77,10 @@ class Decoder(nn.Module):
             m= torch.distributions.categorical.Categorical(logits= logits)
             word_inds= m.sample()
             word_ind_list.append(word_inds)
-            inp= output
-        
+            inp= self.emb_layer(word_inds)
+        output_inds= torch.cat(word_ind_list, dim=1)
+        assert output_inds.size(1) == self.max_seq_len, "Incorrect sequence generated length"
+        return output_inds
 
 #    def forward(self, features, captions, lengths):
 #        """Decode image feature vectors and generates captions."""
@@ -93,15 +101,17 @@ def fn(model, x):
     return x
 
 class Encoder(nn.Module):
-    def __init__(self, model, img_feature_size, dec_hidden_size):
+    def __init__(self, model, img_feature_size, word_emb_size):
         super(Encoder, self).__init__()
-        self.model= model
-        self.linear= nn.Linear(img_feature_size, dec_hidden_size)
-#        self.linear= nn.Linear(img_feature_size, 300)
+        modules= list(model.children())[:-1]      # delete the last fc layer.
+        self.model= nn.Sequential(*modules)
+        self.linear = nn.Linear(model.fc.in_features, word_emb_size)
     
     def forward(self, x):
-        pdb.set_trace()
-        x= fn(self.model, x)
+#        pdb.set_trace()
+        with torch.no_grad():
+            x= self.model(x)
+#        x= fn(self.model, x)
         x= x.view(x.size()[0], -1)
         x= self.linear(x)
         return x
