@@ -89,7 +89,7 @@ def get_dataloader(token_dict, mode= 'train'):
         #Initialize dataloader: make separate ones for training and validation datasets once downloaded
         dataloader= DataLoader(my_dset, batch_size= args.batch_size,
                                shuffle=True, num_workers= args.num_workers)
-        return dataloader
+        return dataloader, my_dset
     elif mode == 'val':
         data_transform = transforms.Compose([
                 transforms.RandomSizedCrop(args.crop_size),
@@ -106,7 +106,7 @@ def get_dataloader(token_dict, mode= 'train'):
         #Initialize dataloader: make separate ones for training and validation datasets once downloaded
         dataloader= DataLoader(my_dset, batch_size= args.batch_size,
                                shuffle=False, num_workers= args.num_workers)
-        return dataloader
+        return dataloader, my_dset
     else:
         raise NotImplementedError("Only validation and train")
 
@@ -155,13 +155,14 @@ if __name__ == "__main__":
         decoder= Decoder(emb_matrix, len(emb_matrix), args.embed_size, args.num_layers, 
                          args.hidden_size, word_to_idx).to(device)
         
-        train_dataloader= get_dataloader(word_to_idx, 'train')
-        val_dataloader= get_dataloader(word_to_idx, 'val')
+        train_dataloader, my_dset_train= get_dataloader(word_to_idx, 'train')
+        val_dataloader, my_dset_val= get_dataloader(word_to_idx, 'val')
         
         vocab_size= len(emb_matrix)
         best_score= 0.0 #Check against validation score after every epoch (or few steps)
         loss_function = nn.CrossEntropyLoss(reduce= False)
-        all_params= get_trainable_params(list(decoder.parameters())) + get_trainable_params(list(encoder.linear.parameters()))
+        all_params= get_trainable_params(list(decoder.parameters())) + get_trainable_params(
+                list(encoder.linear.parameters()))
         optimizer = optim.Adam(all_params, lr= args.learning_rate)
 #        pdb.set_trace()
         for epoch in range(args.num_epochs):
@@ -186,7 +187,7 @@ if __name__ == "__main__":
             
                 # Print log info
                 if i_batch % args.log_step == 0:
-                    print('Epoch [{}/{}], Step {}, Loss: {:.4f}, Perplexity: {:5.4f}'
+                    logging.info('Epoch [{}/{}], Step {}, Loss: {:.4f}, Perplexity: {:5.4f}'
                           .format(epoch, args.num_epochs, i_batch, loss.item(), np.exp(loss.item()))) 
                     
                 # Save the model checkpoints

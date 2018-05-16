@@ -164,9 +164,9 @@ class MyCOCODset(Dataset):
         img, str_caption, img_idx= self.coco_dset[ind]
         str_caption= str_caption[np.random.randint(len(str_caption))].lower()
         ind_caption= [self.word_to_idx[w] for w in word_tokenize(clean_text(str_caption))]
-        real_len= len(ind_caption)
+        real_len= min(self.max_seq_len, len(ind_caption))
         ind_caption= ind_caption + [self.pad_id] * (self.max_seq_len - real_len)
-        return img, torch.tensor(ind_caption, dtype= torch.long), real_len, img_idx
+        return img, torch.tensor(ind_caption[:self.max_seq_len], dtype= torch.long), real_len, img_idx
     
     def __len__(self):
         return len(self.coco_dset)
