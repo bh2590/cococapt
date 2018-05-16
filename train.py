@@ -22,7 +22,7 @@ from tqdm import tqdm
 import logging
 logger = logging.getLogger("Training")
 logger.setLevel(logging.INFO)
-logging.basicConfig(format='%(levelname)s:%(message)s', level=logging.INFO)
+logging.basicConfig(format='%(levelname)s %(asctime)s : %(message)s', level=logging.INFO)
 
 from ipdb import slaunch_ipdb_on_exception
 import ipdb as pdb
@@ -31,11 +31,12 @@ import pickle
 from utils import SpecialTokens, MyCOCODset, make_caption_word_dict, loadWordVectors, CocoCaptions_Cust
 from model import Encoder, Decoder, fn
 
+import json
 from pprint import pprint
 import ast
 import argparse
 parser = argparse.ArgumentParser()
-parser.add_argument('--model_path', type=str, default='./weights/' , help='path for saving trained models')
+parser.add_argument('--model_path', type=str, default='weights' , help='path for saving trained models')
 parser.add_argument('--crop_size', type=int, default=224 , help='size for randomly cropping images')
 parser.add_argument('--glove_path', type=str, default='/Users/hanozbhathena/Documents/coco/data/glove.840B.300d.txt', 
                     help='path for pretrained glove embeddings')
@@ -64,6 +65,10 @@ parser.add_argument('--use_cuda', type=ast.literal_eval , default=False, help='w
 parser.add_argument('--save_data_fname', type=str , default='data.pickle', 
                     help='file to save/load embedding matrix and word_to_idx dict')
 parser.add_argument('--max_seq_len', type=int , default=20, help='maximum unrolling length')
+parser.add_argument('--output_json', type=str, 
+                    default='val_generated_capts.json', 
+                    help='val generated captions filename')
+
 
 parser.add_argument('--num_epochs', type=int, default=5)
 parser.add_argument('--batch_size', type=int, default=4)
@@ -117,6 +122,23 @@ def get_trainable_params(params):
             tr_params.append(param)
     return tr_params
 
+def save_weights(encoder, decoder, epoch, step):
+    #Later make this to save only after running eval and if better than best_score
+    torch.save(decoder.state_dict(), os.path.join(
+        args.model_path, 'decoder-{}-{}.ckpt'.format(epoch+1, step+1)))
+    torch.save(encoder.state_dict(), os.path.join(
+        args.model_path, 'encoder-{}-{}.ckpt'.format(epoch+1, step+1)))
+
+def save_to_json(val_gen_words_dict):
+    temp_list= []
+    for k, v in val_gen_words_dict.items():
+        temp_dict= {}
+        temp_dict["image_id"]= int(k)
+        temp_dict["caption"]= str(v)
+        temp_list.append(temp_dict)
+    
+    with open(args.output_json, 'w') as out:
+        json.dump(temp_list, out)
 
 if __name__ == "__main__":
     with slaunch_ipdb_on_exception():
@@ -187,20 +209,19 @@ if __name__ == "__main__":
             
                 # Print log info
                 if i_batch % args.log_step == 0:
-                    logging.info('Epoch [{}/{}], Step {}, Loss: {:.4f}, Perplexity: {:5.4f}'
+                    logging.info('Epoch [{}/{}], Train Step {}, Train Loss: {:.4f}, Train Perplexity: {:5.4f}'
                           .format(epoch, args.num_epochs, i_batch, loss.item(), np.exp(loss.item()))) 
                     
                 # Save the model checkpoints
                 if (i_batch+1) % args.save_step == 0:
                     #Later make this to save only after running eval and if better than best_score
-                    torch.save(decoder.state_dict(), os.path.join(
-                        args.model_path, 'decoder-{}-{}.ckpt'.format(epoch+1, i_batch+1)))
-                    torch.save(encoder.state_dict(), os.path.join(
-                        args.model_path, 'encoder-{}-{}.ckpt'.format(epoch+1, i_batch+1)))
-                
-#                break
+                    save_weights(encoder, decoder, epoch, i_batch)
+            
+            #Save weights at end of the epoch
+            save_weights(encoder, decoder, epoch, i_batch)
             
             with torch.no_grad():
+                logging.info("Running on Validation set")
 #                pdb.set_trace()
                 val_gen_inds= []
                 idx_list= []
@@ -210,11 +231,13 @@ if __name__ == "__main__":
                                                            rlen_batch.to(device))
                     img_features= encoder(img_batch)
                     predictions_idx= decoder.inference(img_features)
-#                    predictions_idx= predictions_idx.numpy()
                     val_gen_inds.append(predictions_idx)
                     idx_list.append(idx_batch)
-#                    if i_batch >= 2:
-#                        break
+                    # Print log info
+                    if i_batch % args.log_step == 0:
+                        logging.info('Epoch [{}/{}], Dev Step {}'
+                              .format(epoch, args.num_epochs, i_batch))
+                        
 #                pdb.set_trace()
                 val_gen_inds= torch.cat(val_gen_inds, dim=0)
                 idx_concat= torch.cat(idx_list, dim= 0).numpy()
@@ -230,6 +253,7 @@ if __name__ == "__main__":
                             break
                         temp.append(word)
                     val_gen_words_dict[key]= ' '.join(temp)
-                
+                save_to_json(val_gen_words_dict)
+                logging.info("Epoch {} validation captions saved to".format(epoch, args.output_json))
                 #Send val_gen_words_dict to coco validation
 

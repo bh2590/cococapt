@@ -152,6 +152,12 @@ def clean_text(text):
     #Logic to clean text: review from Keras tutorial or some COCO captions tutorial online
     return text
 
+def get_word_id(w, word_to_idx):
+    try:
+        return word_to_idx[w]
+    except KeyError:
+        return word_to_idx[SpecialTokens.OOV]
+
 
 class MyCOCODset(Dataset):
     def __init__(self, coco_dset, word_to_idx, max_seq_len, pad_id):
@@ -161,9 +167,9 @@ class MyCOCODset(Dataset):
         self.pad_id= pad_id
     
     def __getitem__(self, ind):
-        img, str_caption, img_idx= self.coco_dset[ind]
-        str_caption= str_caption[np.random.randint(len(str_caption))].lower()
-        ind_caption= [self.word_to_idx[w] for w in word_tokenize(clean_text(str_caption))]
+        img, self.str_caption, img_idx= self.coco_dset[ind]
+        self.str_caption= self.str_caption[np.random.randint(len(self.str_caption))].lower()
+        ind_caption= [get_word_id(w, self.word_to_idx) for w in word_tokenize(clean_text(self.str_caption))]
         real_len= min(self.max_seq_len, len(ind_caption))
         ind_caption= ind_caption + [self.pad_id] * (self.max_seq_len - real_len)
         return img, torch.tensor(ind_caption[:self.max_seq_len], dtype= torch.long), real_len, img_idx
