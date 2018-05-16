@@ -1,0 +1,5 @@
+Decoder(
+  (emb_layer): Embedding(7368, 300)
+  (gru_layer): GRU(300, 512, batch_first=True, dropout=0.5)
+  (vocab_project): Linear(in_features=512, out_features=7368, bias=True)
+)
