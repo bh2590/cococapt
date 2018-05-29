@@ -1,6 +1,6 @@
 import os
 import numpy as np
-import dill as pickle
+import pickle
 import re
 import multiprocessing as mp
 import logging
@@ -15,14 +15,15 @@ from tqdm import tqdm
 from PIL import Image
 import pdb
 from ipdb import slaunch_ipdb_on_exception
+import gc
 
 logger = logging.getLogger("Data preprocessing")
 logger.setLevel(logging.INFO)
 logging.basicConfig(format='%(levelname)s %(asctime)s : %(message)s', level=logging.INFO)
 
-FILE_BASE= '_img_features.pickle'
-BATCH_SIZE= 200
-NUM_WORKERS= 2
+FILE_BASE= '_img_features.dat'
+BATCH_SIZE= 100
+NUM_WORKERS= 8
 
 class CocoCaptions_Cust(Dataset):
     def __init__(self, root, annFile, transform=None, target_transform=None):
@@ -113,35 +114,35 @@ def run_cnn_models(model_dict, model_name):
 
 
     #Training set loop
-    img_class_distr= []
+    test= model(train_caption_dset[0][0].unsqueeze(0).to(device)).detach().cpu().numpy()
+    img_class_distr= np.memmap(train_outfilename, dtype= np.float32, mode= 'w+', shape= (len(train_caption_dset), *test.shape[1:]))
     with torch.no_grad():
         for i, (img, _, _) in enumerate(train_dataloader):
             img= img.to(device)
             distr= model(img)
-            img_class_distr.append(distr.cpu().numpy())
+            img_class_distr[i*BATCH_SIZE:min(len(img_class_distr), (i+1)*BATCH_SIZE)]= distr.cpu().numpy()
             if i > 0 and i*BATCH_SIZE % 1000 == 0:
                 logging.info("Train Finished {}/{}".format(i*BATCH_SIZE, len(train_caption_dset)))
 
-    img_class_distr= np.concatenate(img_class_distr, axis=0)
+    pdb.set_trace()
     print(img_class_distr.shape)
-    with open(train_outfilename, 'wb') as fo:
-        pickle.dump(img_class_distr, fo)
-
     del img_class_distr
+    
+    gc.collect()
+
     #Dev set loop
-    img_class_distr= []
+    img_class_distr= np.memmap(val_outfilename, dtype= np.float32, mode= 'w+', shape= (len(val_caption_dset), *test.shape[1:]))
     with torch.no_grad():
         for i, (img, _, _) in enumerate(val_dataloader):
             img= img.to(device)
             distr= model(img)
-            img_class_distr.append(distr.cpu().numpy())
+            data= distr.cpu().numpy()
+            img_class_distr[i*BATCH_SIZE:min(len(img_class_distr), (i+1)*BATCH_SIZE)]= data
             if i > 0 and i*BATCH_SIZE % 1000 == 0:
                 logging.info("Val Finished {}/{}".format(i*BATCH_SIZE, len(val_caption_dset)))
 
-    img_class_distr= np.concatenate(img_class_distr, axis=0)
+    pdb.set_trace()
     print(img_class_distr.shape)
-    with open(val_outfilename, 'wb') as fo:
-        pickle.dump(img_class_distr, fo)
     del img_class_distr
     
 
@@ -151,21 +152,6 @@ def get_model_wo_last_n_layers(model, n= 1):
         layers.append(layer)
     return_model= torch.nn.Sequential(*layers[:-n])
     return return_model
-
-def dump_pickle_stram(iterator, file):
-    with open(file, 'wb') as fo:
-        for elem in iterator:
-            pickle.dump(elem, fo)
-
-def load_pickle_stram(file):
-    def fn(file):
-        with open(file, 'rb') as fo:
-            while fo.peek(1):
-                yield pickle.load(fo)
-    
-    ret_arr= np.array([row for row in fn(file)])
-    return ret_arr
-
 
 
 if __name__ == "__main__":
@@ -183,7 +169,7 @@ if __name__ == "__main__":
                     'inception': inception,
                     }
 
-        models_to_run= ['vgg16',  'densenet']
+        models_to_run= ['densenet']
 
         for model_name in models_to_run:
             model_dict[model_name]= get_model_wo_last_n_layers(model_dict[model_name])
