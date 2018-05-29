@@ -214,6 +214,56 @@ class CocoCaptions_Cust(Dataset):
     def __len__(self):
         return len(self.ids)
 
+
+class CocoCaptions_Features(Dataset):
+    def __init__(self, feature_root, annFile, feature_shape= None, transform=None, target_transform=None):
+        from pycocotools.coco import COCO
+        self.features_file = os.path.expanduser(features_file)
+        self.coco = COCO(annFile)
+        self.ids = list(self.coco.imgs.keys())
+        self.transform = transform
+        self.target_transform = target_transform
+        
+        file_type= self.features_file.split('.')[-1]
+        
+        if file_type == 'pickle' or file_type == 'pkl':
+            with open(self.features_file, 'rb') as fin:
+                self.features= pickle.load(fin)
+        elif file_type == 'dat':
+            if feature_shape is None:
+                raise ValueError("features shape must be provided")
+            self.features= np.memmap(self.features_file, dtype= np.float32, mode= 'r', shape= feature_shape)
+        else:
+            raise ValueError("Incompatible features file type")
+
+    def __getitem__(self, index):
+        """
+        Args:
+            index (int): Index
+        Returns:
+            tuple: Tuple (feature, target). target is a list of captions for the image.
+        """
+        coco = self.coco
+        img_id = self.ids[index]
+        ann_ids = coco.getAnnIds(imgIds=img_id)
+        anns = coco.loadAnns(ann_ids)
+        target = [ann['caption'] for ann in anns]
+
+        feature = self.features[index]
+        if self.transform is not None:
+            feature = self.transform(feature)
+
+        if self.target_transform is not None:
+            target = self.target_transform(target)
+
+        return feature, target, img_id
+
+    def __len__(self):
+        return len(self.ids)
+
+
+
+
 def main(filename= 'saved_data.pickle'):
     tokens= make_caption_word_dict()
     emb_mat, token_dict= loadWordVectors(tokens)

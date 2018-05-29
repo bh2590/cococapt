@@ -33,48 +33,8 @@ from model import Encoder, Decoder, fn
 
 import json
 from pprint import pprint
-import ast
-import argparse
-parser = argparse.ArgumentParser()
-parser.add_argument('--model_path', type=str, default='weights' , help='path for saving trained models')
-parser.add_argument('--crop_size', type=int, default=224 , help='size for randomly cropping images')
-parser.add_argument('--glove_path', type=str, default='/Users/hanozbhathena/Documents/coco/data/glove.840B.300d.txt', 
-                    help='path for pretrained glove embeddings')
-
-parser.add_argument('--train_image_dir', type=str, default='/Users/hanozbhathena/Documents/coco/data/val2017', 
-                    help='directory for train images')
-parser.add_argument('--val_image_dir', type=str, default='/Users/hanozbhathena/Documents/coco/data/val2017', 
-                    help='directory for val images')
-
-parser.add_argument('--train_caption_path', type=str, 
-                    default='/Users/hanozbhathena/Documents/coco/data/annotations/captions_val2017.json', 
-                    help='path for train annotation json file')
-parser.add_argument('--val_caption_path', type=str, 
-                    default='/Users/hanozbhathena/Documents/coco/data/annotations/captions_val2017.json', 
-                    help='path for val annotation json file')
-
-parser.add_argument('--log_step', type=int , default=10, help='step size for prining log info')
-parser.add_argument('--save_step', type=int , default=1000, help='step size for saving trained models')
-
-# Model parameters
-parser.add_argument('--embed_size', type=int , default=300, help='dimension of word embedding vectors')
-parser.add_argument('--hidden_size', type=int , default=512, help='dimension of lstm hidden states')
-parser.add_argument('--num_layers', type=int , default=1, help='number of layers in lstm')
-parser.add_argument('--preprocess', type=ast.literal_eval , default=True, help='whether to preprocess from scratch')
-parser.add_argument('--use_cuda', type=ast.literal_eval , default=False, help='whether to use GPU')
-parser.add_argument('--save_data_fname', type=str , default='data.pickle', 
-                    help='file to save/load embedding matrix and word_to_idx dict')
-parser.add_argument('--max_seq_len', type=int , default=20, help='maximum unrolling length')
-parser.add_argument('--output_json', type=str, 
-                    default='val_generated_capts.json', 
-                    help='val generated captions filename')
-
-
-parser.add_argument('--num_epochs', type=int, default=5)
-parser.add_argument('--batch_size', type=int, default=4)
-parser.add_argument('--num_workers', type=int, default=2)
-parser.add_argument('--learning_rate', type=float, default=0.001)
-args = parser.parse_args()
+from config import args
+from scores import get_scores_im
 
 
 def get_dataloader(token_dict, mode= 'train'):
@@ -140,31 +100,41 @@ def save_to_json(val_gen_words_dict):
     with open(args.output_json, 'w') as out:
         json.dump(temp_list, out)
 
+
+def evaluate_captions(val_gen_words_dict, metrics= None):
+    temp_list= []
+    for k, v in val_gen_words_dict.items():
+        temp_dict= {}
+        temp_dict["image_id"]= int(k)
+        temp_dict["caption"]= str(v)
+        temp_list.append(temp_dict)
+    
+    scores= get_scores_im(result_list= temp_list)
+    
+    if metrics is None:
+        cum_score= np.mean([scores[k] for k in scores.keys()])
+    else:
+        cum_score= np.mean([scores[k] for k in scores.keys() if k in metrics])
+    
+    return cum_score
+
+
 if __name__ == "__main__":
     with slaunch_ipdb_on_exception():
         pdb.set_trace(context= 5)
-        if args.preprocess == True:
-            token_dict, _, caption_dset= make_caption_word_dict(args.train_image_dir, args.train_caption_path)
-            #Get word vectors
-            emb_matrix, word_to_idx, idx_to_word= loadWordVectors(token_dict)
-            #Save for future use
-            obj= SavedData(emb_matrix, word_to_idx, idx_to_word)
-            with open(args.save_data_fname, 'wb') as output:
-                pickle.dump(obj, output)
-        else:
-            with open(args.save_data_fname, 'rb') as input_:
-                obj= pickle.load(input_)
-                emb_matrix, word_to_idx, idx_to_word= obj.emb_mat, obj.word_to_idx, obj.idx_to_word
-                data_transform = transforms.Compose([
-                        transforms.RandomSizedCrop(args.crop_size),
-                        #transforms.RandomHorizontalFlip(),
-                        transforms.ToTensor(),
-                        transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                                             std=[0.229, 0.224, 0.225])
-                    ])
-                caption_dset = CocoCaptions_Cust(root= args.train_image_dir, 
-                                                 annFile= args.train_caption_path,
-                                                 transform= data_transform)
+        with open(args.save_data_fname, 'rb') as input_:
+            vocab= pickle.load(input_)
+            emb_matrix, word_to_idx, idx_to_word= vocab.word_embeddings, vocab.word2idx, vocab.idx2word
+        data_transform = transforms.Compose([
+                transforms.RandomSizedCrop(args.crop_size),
+                transforms.RandomHorizontalFlip(),
+                transforms.ToTensor(),
+                transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                     std=[0.229, 0.224, 0.225])
+            ])
+        caption_dset = CocoCaptions_Cust(root= args.train_image_dir, 
+                                         annFile= args.train_caption_path,
+                                         transform= data_transform)
         random_img, _, _= caption_dset[np.random.randint(1000)]
         #To get the linear proj size for encoder
         resnet18 = models.resnet18(pretrained=True)

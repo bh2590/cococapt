@@ -1,5 +1,6 @@
-from evaluate.pycocotools.coco import COCO
-from evaluate.pycocoevalcap.eval import COCOEvalCap
+from pycocotools.coco import COCO
+from pycocoevalcap.eval import COCOEvalCap
+from pycocoevalcap.eval_inmemory import COCOEvalCap as COCOEvalCap2
 import matplotlib.pyplot as plt
 import skimage.io as io
 import pylab
@@ -24,6 +25,27 @@ def get_scores(annFile='./evaluate/annotations/captions_val2017.json',
     # evaluate results
     # SPICE will take a few minutes the first time, but speeds up due to caching
     cocoEval.evaluate()
+    scores = {}
+    for metric, score in cocoEval.eval.items():
+        scores[metric] = score
+        print('%s: %.3f' % (metric, score))
+
+    if evalImgsFile:
+        json.dump(cocoEval.evalImgs, open(evalImgsFile, 'w'))
+    if evalFile:
+        json.dump(cocoEval.eval, open(evalFile, 'w'))
+
+    return scores
+
+
+def get_scores_im(annFile='./evaluate/annotations/captions_val2017.json',
+         result_list, evalImgsFile=None, evalFile=None):
+    coco = COCO(annFile)
+    cocoEval = COCOEvalCap2(coco)
+
+    # evaluate results
+    # SPICE will take a few minutes the first time, but speeds up due to caching
+    cocoEval.evaluate(result_list)
     scores = {}
     for metric, score in cocoEval.eval.items():
         scores[metric] = score
