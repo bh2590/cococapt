@@ -38,8 +38,8 @@ def get_scores(annFile='./evaluate/annotations/captions_val2017.json',
     return scores
 
 
-def get_scores_im(annFile='./evaluate/annotations/captions_val2017.json',
-         result_list, evalImgsFile=None, evalFile=None):
+def get_scores_im(result_list, annFile='./evaluate/annotations/captions_val2017.json',
+          evalImgsFile=None, evalFile=None):
     coco = COCO(annFile)
     cocoEval = COCOEvalCap2(coco)
 

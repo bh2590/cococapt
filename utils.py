@@ -71,7 +71,8 @@ def pad_sequences(data, max_length, start_skip=0):
             new_sentence = sentence
         real_lens.append(min(len_sentence, max_length))
         # print "len(sentence)    ", len(sentence), "start_skip ", start_skip
-        # mask = [True] * max_length if len_sentence >= max_length else [True] * len(sentence) + [False] * (max_length - len_sentence)
+        # mask = [True] * max_length if len_sentence >= max_length else [True] * len(sentence) 
+#        + [False] * (max_length - len_sentence)
         ret.append(new_sentence)
     return np.array(ret), np.array(real_lens)
 
@@ -216,9 +217,9 @@ class CocoCaptions_Cust(Dataset):
 
 
 class CocoCaptions_Features(Dataset):
-    def __init__(self, feature_root, annFile, feature_shape= None, transform=None, target_transform=None):
+    def __init__(self, root, annFile, feature_shape= None, transform=None, target_transform=None):
         from pycocotools.coco import COCO
-        self.features_file = os.path.expanduser(features_file)
+        self.features_file = os.path.expanduser(root)
         self.coco = COCO(annFile)
         self.ids = list(self.coco.imgs.keys())
         self.transform = transform

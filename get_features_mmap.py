@@ -124,7 +124,7 @@ def run_cnn_models(model_dict, model_name):
             if i > 0 and i*BATCH_SIZE % 1000 == 0:
                 logging.info("Train Finished {}/{}".format(i*BATCH_SIZE, len(train_caption_dset)))
 
-    pdb.set_trace()
+    # pdb.set_trace()
     print(img_class_distr.shape)
     del img_class_distr
     
@@ -141,12 +141,16 @@ def run_cnn_models(model_dict, model_name):
             if i > 0 and i*BATCH_SIZE % 1000 == 0:
                 logging.info("Val Finished {}/{}".format(i*BATCH_SIZE, len(val_caption_dset)))
 
-    pdb.set_trace()
+    # pdb.set_trace()
     print(img_class_distr.shape)
     del img_class_distr
+    logging.info("{} done".format(model_name))
+    
     
 
 def get_model_wo_last_n_layers(model, n= 1):
+    if n == 0:
+        return model
     layers= []
     for name, layer in model._modules.items():
         layers.append(layer)
@@ -169,7 +173,7 @@ if __name__ == "__main__":
                     'inception': inception,
                     }
 
-        models_to_run= ['densenet']
+        models_to_run= ['alexnet', 'squeezenet', 'resnet18']
 
         for model_name in models_to_run:
             model_dict[model_name]= get_model_wo_last_n_layers(model_dict[model_name])

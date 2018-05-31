@@ -16,6 +16,7 @@ import torchvision.models as models
 import torchvision.datasets as dset
 import torchvision.transforms as transforms
 
+import datetime
 from torch.utils.data import Dataset, DataLoader
 from nltk.tokenize import word_tokenize, sent_tokenize
 from tqdm import tqdm
@@ -25,11 +26,12 @@ logger.setLevel(logging.INFO)
 logging.basicConfig(format='%(levelname)s %(asctime)s : %(message)s', level=logging.INFO)
 
 from ipdb import slaunch_ipdb_on_exception
-import ipdb as pdb
+import pdb
 from saved_data import SavedData
-import pickle
-from utils import SpecialTokens, MyCOCODset, make_caption_word_dict, loadWordVectors, CocoCaptions_Cust
-from model import Encoder, Decoder, fn
+import dill as pickle
+from utils import (SpecialTokens, MyCOCODset, make_caption_word_dict, 
+                   loadWordVectors, CocoCaptions_Cust, CocoCaptions_Features)
+from model import Encoder, Decoder, fn, DecoderfromClassLogits, DecoderfromFeatures
 
 import json
 from pprint import pprint
@@ -37,18 +39,15 @@ from config import args
 from scores import get_scores_im
 
 
-def get_dataloader(token_dict, mode= 'train'):
+def get_dataloader(token_dict, mode= 'train', feature_shape= None, filename= None):
     if mode == 'train':
         data_transform = transforms.Compose([
-                transforms.RandomSizedCrop(args.crop_size),
-                #transforms.RandomHorizontalFlip(),
-                transforms.ToTensor(),
-                transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                                     std=[0.229, 0.224, 0.225])
+                transforms.ToTensor()
             ])
-        caption_dset = CocoCaptions_Cust(root= args.train_image_dir, 
+        caption_dset = CocoCaptions_Features(root= filename, 
                                          annFile= args.train_caption_path,
-                                         transform= data_transform)
+                                         transform= data_transform,
+                                         feature_shape= feature_shape)
         #Subclass COCO datset
         my_dset= MyCOCODset(caption_dset, token_dict, args.max_seq_len, word_to_idx[SpecialTokens.PAD])
         #Initialize dataloader: make separate ones for training and validation datasets once downloaded
@@ -57,15 +56,12 @@ def get_dataloader(token_dict, mode= 'train'):
         return dataloader, my_dset
     elif mode == 'val':
         data_transform = transforms.Compose([
-                transforms.RandomSizedCrop(args.crop_size),
-                #transforms.RandomHorizontalFlip(),
-                transforms.ToTensor(),
-                transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                                     std=[0.229, 0.224, 0.225])
+                transforms.ToTensor()
             ])
-        caption_dset = CocoCaptions_Cust(root= args.val_image_dir, 
+        caption_dset = CocoCaptions_Features(root= filename, 
                                          annFile= args.val_caption_path,
-                                         transform= data_transform)
+                                         transform= data_transform,
+                                         feature_shape= feature_shape)
         #Subclass COCO datset
         my_dset= MyCOCODset(caption_dset, token_dict, args.max_seq_len, word_to_idx[SpecialTokens.PAD])
         #Initialize dataloader: make separate ones for training and validation datasets once downloaded
@@ -82,12 +78,19 @@ def get_trainable_params(params):
             tr_params.append(param)
     return tr_params
 
-def save_weights(encoder, decoder, epoch, step):
+def save_weights(decoder, epoch, step):
+    model_path= (args.model_path_base + '/' + args.feature_mode + '/' +
+                datetime.datetime.now().strftime('%Y%m%d-%H%M%S')
+            )
+    if not os.path.exists(model_path):
+        os.makedirs(model_path)
+    else:
+        pass
     #Later make this to save only after running eval and if better than best_score
     torch.save(decoder.state_dict(), os.path.join(
-        args.model_path, 'decoder-{}-{}.ckpt'.format(epoch+1, step+1)))
-    torch.save(encoder.state_dict(), os.path.join(
-        args.model_path, 'encoder-{}-{}.ckpt'.format(epoch+1, step+1)))
+        model_path, 'decoder-{}-{}.ckpt'.format(epoch+1, step+1)))
+#    torch.save(encoder.state_dict(), os.path.join(
+#        model_path, 'encoder-{}-{}.ckpt'.format(epoch+1, step+1)))
 
 def save_to_json(val_gen_words_dict):
     temp_list= []
@@ -118,55 +121,117 @@ def evaluate_captions(val_gen_words_dict, metrics= None):
     
     return cum_score
 
+def get_model_wo_last_n_layers(model, n= 1):
+    if n == 0:
+        return model
+    layers= []
+    for name, layer in model._modules.items():
+        layers.append(layer)
+    return_model= torch.nn.Sequential(*layers[:-n])
+    return return_model
+
+
+def init_model(model_name, feature_mode):
+    #download pre-trained models
+    import torchvision.models as models
+    resnet18 = models.resnet18(pretrained=True)
+    resnet34 = models.resnet34(pretrained=True)
+    resnet50 = models.resnet50(pretrained=True)
+    resnet101 = models.resnet101(pretrained=True)
+    resnet152 = models.resnet152(pretrained=True)
+    alexnet = models.alexnet(pretrained=True)
+    squeezenet = models.squeezenet1_0(pretrained=True)
+    vgg16 = models.vgg16(pretrained=True)
+    densenet = models.densenet161(pretrained=True)
+    inception = models.inception_v3(pretrained=True)
+    
+    model_dict= {'resnet18': resnet18,
+                'resnet34': resnet34,
+                'resnet50': resnet50,
+                'resnet101': resnet101,
+                'resnet152': resnet152,
+                'alexnet': alexnet,
+                'squeezenet': squeezenet,
+                'vgg16': vgg16,
+                'densenet': densenet,
+                'inception': inception,
+                }
+    
+    model= model_dict[model_name]
+    
+    BASE_DIRECTORY= '/home/hanozbhathena/project/data/img_features/' + model_name
+    
+    if feature_mode == 'features':
+        FILE_BASE= '_img_features.dat'
+        model= get_model_wo_last_n_layers(model, n= 1)
+    elif feature_mode == 'classes':
+        FILE_BASE= '_img_distr.pickle'
+        model= get_model_wo_last_n_layers(model, n= 0)
+    
+    train_features_file= os.path.join(BASE_DIRECTORY, 'train_' + args.model_name + FILE_BASE)
+    val_features_file= os.path.join(BASE_DIRECTORY, 'val_' + args.model_name + FILE_BASE)
+    
+    return model, train_features_file, val_features_file
+
+
+
+def get_feature_flat_dim(model):
+    train_caption_dset = CocoCaptions_Cust(root= '/home/hanozbhathena/project/data/resizetrain2017', 
+                                     annFile= '/home/hanozbhathena/project/data/annotations/captions_train2017.json',
+                                     transform= transforms.ToTensor())
+    val_caption_dset = CocoCaptions_Cust(root= '/home/hanozbhathena/project/data/resizeval2017', 
+                                     annFile= '/home/hanozbhathena/project/data/annotations/captions_val2017.json',
+                                     transform= transforms.ToTensor())
+    test= model(train_caption_dset[0][0].unsqueeze(0).to('cpu')).detach().cpu().numpy()
+    train_shape= (len(train_caption_dset), *test.shape[1:])
+    val_shape= (len(val_caption_dset), *test.shape[1:])
+    return train_shape, val_shape
+
 
 if __name__ == "__main__":
     with slaunch_ipdb_on_exception():
-        pdb.set_trace(context= 5)
+        pdb.set_trace()
         with open(args.save_data_fname, 'rb') as input_:
             vocab= pickle.load(input_)
             emb_matrix, word_to_idx, idx_to_word= vocab.word_embeddings, vocab.word2idx, vocab.idx2word
-        data_transform = transforms.Compose([
-                transforms.RandomSizedCrop(args.crop_size),
-                transforms.RandomHorizontalFlip(),
-                transforms.ToTensor(),
-                transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                                     std=[0.229, 0.224, 0.225])
-            ])
-        caption_dset = CocoCaptions_Cust(root= args.train_image_dir, 
-                                         annFile= args.train_caption_path,
-                                         transform= data_transform)
-        random_img, _, _= caption_dset[np.random.randint(1000)]
-        #To get the linear proj size for encoder
-        resnet18 = models.resnet18(pretrained=True)
-        random_img= fn(resnet18, random_img.unsqueeze(0))
-        img_feature_size= np.product(list(random_img.size()[1:]))
         #set device
         device = torch.device("cuda" if args.use_cuda else "cpu")
-        #Construct encoder and decoder graphs
-        encoder= Encoder(resnet18, img_feature_size, args.embed_size).to(device)
-        decoder= Decoder(emb_matrix, len(emb_matrix), args.embed_size, args.num_layers, 
-                         args.hidden_size, word_to_idx).to(device)
+        cnn_model, train_features_file, val_features_file= init_model(args.model_name, args.feature_mode)
         
-        train_dataloader, my_dset_train= get_dataloader(word_to_idx, 'train')
-        val_dataloader, my_dset_val= get_dataloader(word_to_idx, 'val')
+        train_shape, val_shape= get_feature_flat_dim(cnn_model.to('cpu'))
+        img_feature_size= np.product(train_shape[1:])
+        
+        #Construct encoder and decoder graphs
+#        encoder= Encoder(resnet18, img_feature_size, args.embed_size).to(device)
+        pdb.set_trace()
+        if args.feature_mode == 'features':
+            decoder= DecoderfromFeatures(img_feature_size, emb_matrix, len(emb_matrix), 
+                                         args.embed_size, args.num_layers, 
+                                         args.hidden_size, word_to_idx).to(device)
+        else:
+            decoder= DecoderfromClassLogits(img_feature_size, emb_matrix, len(emb_matrix), 
+                                         args.embed_size, args.num_layers, 
+                                         args.hidden_size, word_to_idx).to(device)
+
+        train_dataloader, my_dset_train= get_dataloader(word_to_idx, 'train', train_shape, train_features_file)
+        val_dataloader, my_dset_val= get_dataloader(word_to_idx, 'val', val_shape, val_features_file)
         
         vocab_size= len(emb_matrix)
         best_score= 0.0 #Check against validation score after every epoch (or few steps)
         loss_function = nn.CrossEntropyLoss(reduce= False)
-        all_params= get_trainable_params(list(decoder.parameters())) + get_trainable_params(
-                list(encoder.linear.parameters()))
+        all_params= get_trainable_params(list(decoder.parameters()))
         optimizer = optim.Adam(all_params, lr= args.learning_rate)
 #        pdb.set_trace()
         for epoch in range(args.num_epochs):
             #Training
             pdb.set_trace()
-            encoder.linear.train()
+#            encoder.linear.train()
             decoder.train()
-            for i_batch, (img_batch, targets_batch, rlen_batch, idx_batch) in enumerate(train_dataloader):
-                img_batch, targets_batch, rlen_batch= (img_batch.to(device), 
+            for i_batch, (img_features, targets_batch, rlen_batch, idx_batch) in enumerate(train_dataloader):
+                img_features, targets_batch, rlen_batch= (img_features.to(device), 
                                                        targets_batch.to(device), 
                                                        rlen_batch.to(device))
-                img_features= encoder(img_batch)
+#                img_features= encoder(img_batch)
                 predictions= decoder(img_features, targets_batch, rlen_batch)
                 targets_batch= targets_batch.view(-1)
                 predictions= predictions.view(-1, vocab_size)
@@ -185,21 +250,21 @@ if __name__ == "__main__":
                 # Save the model checkpoints
                 if (i_batch+1) % args.save_step == 0:
                     #Later make this to save only after running eval and if better than best_score
-                    save_weights(encoder, decoder, epoch, i_batch)
+                    save_weights(decoder, epoch, i_batch)
             
             #Save weights at end of the epoch
-            save_weights(encoder, decoder, epoch, i_batch)
+            save_weights(decoder, epoch, i_batch)
             
             with torch.no_grad():
                 logging.info("Running on Validation set")
 #                pdb.set_trace()
                 val_gen_inds= []
                 idx_list= []
-                for i_batch, (img_batch, targets_batch, rlen_batch, idx_batch) in enumerate(val_dataloader):
-                    img_batch, targets_batch, rlen_batch= (img_batch.to(device), 
+                for i_batch, (img_features, targets_batch, rlen_batch, idx_batch) in enumerate(val_dataloader):
+                    img_features, targets_batch, rlen_batch= (img_features.to(device), 
                                                            targets_batch.to(device), 
                                                            rlen_batch.to(device))
-                    img_features= encoder(img_batch)
+#                    img_features= encoder(img_features)
                     predictions_idx= decoder.inference(img_features)
                     val_gen_inds.append(predictions_idx)
                     idx_list.append(idx_batch)
