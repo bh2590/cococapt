@@ -11,7 +11,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from torch.nn.utils.rnn import pad_packed_sequence, pack_padded_sequence
-from utils import SpecialTokens, MyCOCODset, make_caption_word_dict, loadWordVectors
+from utils import SpecialTokens
 import numpy as np
 import torchvision.models as models
 import logging
@@ -26,7 +26,7 @@ from tqdm import tqdm
 #torch.manual_seed(1)
 
 from ipdb import slaunch_ipdb_on_exception
-import ipdb as pdb
+import pdb
 
 class Decoder(nn.Module):
     def __init__(self, emb_mat, vocab_size, word_vec_size, num_layers, output_size, word_to_idx,
@@ -45,7 +45,7 @@ class Decoder(nn.Module):
         self.gru_layer= nn.GRU(input_size= word_vec_size, hidden_size= output_size, num_layers= num_layers,
                            dropout= dropout, batch_first= self.batch_first, bidirectional= bidirectional)
         self.vocab_project= nn.Linear(output_size, vocab_size)
-        self.start_id= torch.tensor(word_to_idx[SpecialTokens.START], dtype= torch.long)
+        self.start_id= torch.tensor(word_to_idx[SpecialTokens().START], dtype= torch.long)
     
     def forward(self, img_rep, targets, real_lens, is_train= True):
 #        pdb.set_trace()
@@ -128,9 +128,12 @@ class ImageCaption(nn.Module):
         return predictions
 
 class Flatten(nn.Module):
+    def __init__(self):
+        super(Flatten, self).__init__()
+    
     def forward(self, x):
-        N, C, H, W = x.size() # read in N, C, H, W
-        return x.view(N, -1) # "flatten" the C * H * W values into a single vector per image
+        N = x.size(0)
+        return x.view(N, -1)
 
 
 
@@ -155,34 +158,38 @@ class DecoderfromFeatures(nn.Module):
         self.vocab_project= nn.Linear(output_size, vocab_size)
 #        self.start_id= torch.tensor(word_to_idx[SpecialTokens.START], dtype= torch.long)
     
-    def forward(self, img_rep, targets, real_lens, is_train= True):
-        pdb.set_trace()
+    def forward(self, img_rep, targets, real_lens):
+#        pdb.set_trace()
         img_flat= self.flatten(img_rep)
         img_projection= self.lin_project_from_img(img_flat)
         start_batch= img_projection.unsqueeze(1)
-        if is_train == True: #replace with self.training later
-            teacher_inps= targets[:, :-1]
-            emb_inps= torch.cat([start_batch, self.emb_layer(teacher_inps)], dim= 1)
-            real_lens+= 1
-            real_lens= real_lens.clamp(0, self.max_seq_len)
-            real_lens_sorted, idx = real_lens.sort(0, descending=True)
-            emb_inps_sorted = emb_inps[idx]
-            h_0= torch.zeros((self.num_layers * self.num_directions, img_projection.size(0), self.output_size))
-            packed_seq_x= pack_padded_sequence(emb_inps_sorted, real_lens_sorted, batch_first= self.batch_first)
-            packed_out, packed_h_t= self.gru_layer(packed_seq_x, h_0)
-            unpacked_out, _= pad_packed_sequence(packed_out, batch_first= self.batch_first, 
-                                                 total_length= targets.size()[1])
-            _, orig_idx = idx.sort(0)
-            out = unpacked_out[orig_idx]
-            final_out= self.vocab_project(out)
-            return final_out
+        teacher_inps= targets[:, :-1]
+        emb_inps= torch.cat([start_batch, self.emb_layer(teacher_inps)], dim= 1)
+        real_lens+= 1
+        real_lens= real_lens.clamp(0, self.max_seq_len)
+        real_lens_sorted, idx = real_lens.sort(0, descending=True)
+        emb_inps_sorted = emb_inps[idx]
+#        h_0= torch.zeros((self.num_layers * self.num_directions, img_projection.size(0), self.output_size))
+        packed_seq_x= pack_padded_sequence(emb_inps_sorted, real_lens_sorted, batch_first= self.batch_first)
+        packed_out, packed_h_t= self.gru_layer(packed_seq_x)
+        unpacked_out, _= pad_packed_sequence(packed_out, batch_first= self.batch_first, 
+                                             total_length= targets.size()[1])
+        _, orig_idx = idx.sort(0)
+        out = unpacked_out[orig_idx]
+        final_out= self.vocab_project(out)
+        return final_out
     
     def inference(self, img_rep):
-        inp= img_rep.unsqueeze(1)
-        state= torch.zeros((self.num_layers * self.num_directions, inp.size(0), self.output_size))
+        img_flat= self.flatten(img_rep)
+        img_projection= self.lin_project_from_img(img_flat)
+        inp= img_projection.unsqueeze(1)
+#        state= torch.zeros((self.num_layers * self.num_directions, inp.size(0), self.output_size))
         word_ind_list= []
         for step in range(self.max_seq_len):
-            output, state= self.gru_layer(inp, state)
+            if step == 0:
+                output, state= self.gru_layer(inp)
+            else:
+                output, state= self.gru_layer(inp, state)
             logits= self.vocab_project(output)
             m= torch.distributions.categorical.Categorical(logits= logits)
             word_inds= m.sample()

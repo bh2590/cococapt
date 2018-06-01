@@ -39,7 +39,7 @@ parser.add_argument('--embed_size', type=int , default=300, help='dimension of w
 parser.add_argument('--hidden_size', type=int , default=512, help='dimension of lstm hidden states')
 parser.add_argument('--num_layers', type=int , default=1, help='number of layers in lstm')
 parser.add_argument('--preprocess', type=ast.literal_eval , default=True, help='whether to preprocess from scratch')
-parser.add_argument('--use_cuda', type=ast.literal_eval , default=False, help='whether to use GPU')
+parser.add_argument('--use_cuda', type=ast.literal_eval , default=True, help='whether to use GPU')
 parser.add_argument('--save_data_fname', type=str , default='/home/hanozbhathena/project/data/vocab.pkl', 
                     help='file to save/load embedding matrix and word_to_idx dict')
 parser.add_argument('--max_seq_len', type=int , default=20, help='maximum unrolling length')

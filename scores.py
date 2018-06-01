@@ -4,6 +4,7 @@ from pycocoevalcap.eval_inmemory import COCOEvalCap as COCOEvalCap2
 import matplotlib.pyplot as plt
 import skimage.io as io
 import pylab
+import pdb
 pylab.rcParams['figure.figsize'] = (10.0, 8.0)
 
 import json
@@ -41,6 +42,7 @@ def get_scores(annFile='./evaluate/annotations/captions_val2017.json',
 def get_scores_im(result_list, annFile='./evaluate/annotations/captions_val2017.json',
           evalImgsFile=None, evalFile=None):
     coco = COCO(annFile)
+    pdb.set_trace()
     cocoEval = COCOEvalCap2(coco)
 
     # evaluate results

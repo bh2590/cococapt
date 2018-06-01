@@ -10,7 +10,7 @@ Created on Sun May 13 17:22:44 2018
 import os
 import numpy as np
 import pickle
-import ipdb as pdb
+import pdb
 from saved_data import SavedData
 import re
 import multiprocessing as mp
@@ -28,13 +28,7 @@ from PIL import Image
 logger = logging.getLogger("Data preprocessing")
 logger.setLevel(logging.INFO)
 logging.basicConfig(format='%(levelname)s:%(message)s', level=logging.INFO)
-
-
-class SpecialTokens:
-    END = '<EOS>'
-    OOV = "<OOV>"
-    START = "<S>"
-    PAD = '<PAD>'
+from image_captioning.build_vocab import SpecialTokens
 
 
 def build_dict(words, max_words=None, offset=0):
@@ -102,52 +96,52 @@ def make_caption_word_dict(root = '/Users/hanozbhathena/Documents/coco/data/val2
     assert 0 not in idx_to_word, "PAD token should be 0 index"
     return word_to_idx, idx_to_word, caption_dset
 
-def loadWordVectors(tokens, filepath="/Users/hanozbhathena/Documents/coco/data/glove.840B.300d.txt", dimensions=300):
-    """Read pretrained GloVe vectors"""
-    dic = {}
-    words= []
-    with open(filepath) as ifs:
-        for line in ifs:
-            line = line.strip()
-            if not line:
-                continue
-            row = line.split()
-            token = row[0]
-            if token not in tokens:
-                continue
-            try:
-                data = [float(x) for x in row[1:]]
-            except ValueError:
-                words.append(' '.join(row[:-300]))
-                continue
-            if len(data) != dimensions:
-                raise RuntimeError("wrong number of dimensions")
-            dic[token] = np.asarray(data)
-    logging.info("{} lines were not meeting split standards: {}".format(len(words), words))
-    dic[SpecialTokens.START]= np.random.uniform(low=-0.25, high=0.25, size=dimensions)
-    dic[SpecialTokens.END]= np.random.uniform(low=-0.25, high=0.25, size=dimensions)
-    dic[SpecialTokens.OOV]= np.random.uniform(low=-0.25, high=0.25, size=dimensions)
-    dic[SpecialTokens.PAD]= np.random.uniform(low=-0.25, high=0.25, size=dimensions)
-    
-    tokens[SpecialTokens.PAD]= 0
-    tokens[SpecialTokens.START]= len(tokens)
-    tokens[SpecialTokens.END]= len(tokens)
-    tokens[SpecialTokens.OOV]= len(tokens)
-    
-    tokens_inv= {v:k for k,v in tokens.items()}
-    
-    pdb.set_trace()
-    wordVectors = np.zeros((len(tokens), dimensions))
-    oov_count= 0
-    for word, ind in tokens.items():
-        try:
-            wordVectors[ind]= dic[word]
-        except KeyError:
-            oov_count+=1
-            wordVectors[ind]= dic[SpecialTokens.OOV]
-    logging.info("{} words from COCO were OOV for Glove".format(oov_count))
-    logging.info("word vectors loaded using" + filepath)
-    return wordVectors, tokens, tokens_inv
+#def loadWordVectors(tokens, filepath="/Users/hanozbhathena/Documents/coco/data/glove.840B.300d.txt", dimensions=300):
+#    """Read pretrained GloVe vectors"""
+#    dic = {}
+#    words= []
+#    with open(filepath) as ifs:
+#        for line in ifs:
+#            line = line.strip()
+#            if not line:
+#                continue
+#            row = line.split()
+#            token = row[0]
+#            if token not in tokens:
+#                continue
+#            try:
+#                data = [float(x) for x in row[1:]]
+#            except ValueError:
+#                words.append(' '.join(row[:-300]))
+#                continue
+#            if len(data) != dimensions:
+#                raise RuntimeError("wrong number of dimensions")
+#            dic[token] = np.asarray(data)
+#    logging.info("{} lines were not meeting split standards: {}".format(len(words), words))
+#    dic[SpecialTokens.START]= np.random.uniform(low=-0.25, high=0.25, size=dimensions)
+#    dic[SpecialTokens.END]= np.random.uniform(low=-0.25, high=0.25, size=dimensions)
+#    dic[SpecialTokens.OOV]= np.random.uniform(low=-0.25, high=0.25, size=dimensions)
+#    dic[SpecialTokens.PAD]= np.random.uniform(low=-0.25, high=0.25, size=dimensions)
+#    
+#    tokens[SpecialTokens.PAD]= 0
+#    tokens[SpecialTokens.START]= len(tokens)
+#    tokens[SpecialTokens.END]= len(tokens)
+#    tokens[SpecialTokens.OOV]= len(tokens)
+#    
+#    tokens_inv= {v:k for k,v in tokens.items()}
+#    
+#    pdb.set_trace()
+#    wordVectors = np.zeros((len(tokens), dimensions))
+#    oov_count= 0
+#    for word, ind in tokens.items():
+#        try:
+#            wordVectors[ind]= dic[word]
+#        except KeyError:
+#            oov_count+=1
+#            wordVectors[ind]= dic[SpecialTokens.OOV]
+#    logging.info("{} words from COCO were OOV for Glove".format(oov_count))
+#    logging.info("word vectors loaded using" + filepath)
+#    return wordVectors, tokens, tokens_inv
 
 def clean_text(text):
     #Logic to clean text: review from Keras tutorial or some COCO captions tutorial online
@@ -157,7 +151,7 @@ def get_word_id(w, word_to_idx):
     try:
         return word_to_idx[w]
     except KeyError:
-        return word_to_idx[SpecialTokens.OOV]
+        return word_to_idx[SpecialTokens().OOV]
 
 
 class MyCOCODset(Dataset):
@@ -251,6 +245,7 @@ class CocoCaptions_Features(Dataset):
         target = [ann['caption'] for ann in anns]
 
         feature = self.features[index]
+        feature = torch.tensor(feature)
         if self.transform is not None:
             feature = self.transform(feature)
 
