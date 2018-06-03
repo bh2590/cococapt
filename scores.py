@@ -42,7 +42,7 @@ def get_scores(annFile='./evaluate/annotations/captions_val2017.json',
 def get_scores_im(result_list, annFile='./evaluate/annotations/captions_val2017.json',
           evalImgsFile=None, evalFile=None):
     coco = COCO(annFile)
-    pdb.set_trace()
+#    pdb.set_trace()
     cocoEval = COCOEvalCap2(coco)
 
     # evaluate results

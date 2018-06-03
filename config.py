@@ -10,7 +10,8 @@ import ast
 import argparse
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--model_path_base', type=str, default='/home/hanozbhathena/project/weights' , help='path for saving trained models')
+parser.add_argument('--model_path_base', type=str, default='/home/hanozbhathena/project/weights' , 
+                    help='path for saving trained models')
 parser.add_argument('--crop_size', type=int, default=224 , help='size for randomly cropping images')
 parser.add_argument('--glove_path', type=str, default='/home/hanozbhathena/project/data/glove.840B.300d.txt', 
                     help='path for pretrained glove embeddings')
@@ -48,8 +49,8 @@ parser.add_argument('--output_json', type=str,
                     help='val generated captions filename')
 
 #Training parameters
-parser.add_argument('--num_epochs', type=int, default=5)
-parser.add_argument('--batch_size', type=int, default=4)
+parser.add_argument('--num_epochs', type=int, default=10)
+parser.add_argument('--batch_size', type=int, default=64)
 parser.add_argument('--num_workers', type=int, default=2)
 parser.add_argument('--learning_rate', type=float, default=0.001)
 

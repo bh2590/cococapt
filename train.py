@@ -126,7 +126,7 @@ def evaluate_captions(val_gen_words_dict, metrics= None):
         temp_dict["image_id"]= int(k)
         temp_dict["caption"]= str(v)
         temp_list.append(temp_dict)
-    
+#    pdb.set_trace()
     scores= get_scores_im(result_list= temp_list)
     
     if metrics is None:
@@ -208,7 +208,7 @@ def get_feature_flat_dim(model):
 
 
 def evaluate(val_dataloader, decoder):
-    pdb.set_trace()
+#    pdb.set_trace()
     with torch.no_grad():
         logging.info("Running on Validation set")
         val_gen_inds= []

@@ -29,7 +29,7 @@ class COCOEvalCap:
         res = {}
         for img_obj in results_list:
             imgId= img_obj['image_id']
-            res[imgId]= img_obj
+            res[imgId]= [img_obj]
             gts[imgId]= self.coco.imgToAnns[imgId]
 
         # =================================================
