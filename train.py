@@ -95,7 +95,7 @@ def save_weights(decoder, epoch, step):
 
 
 def save_best_weights(decoder, epoch, step):
-    model_path= (args.model_path_base + '/' + args.feature_mode + '/' +
+    model_path= (args.model_path_base + '/' + args.feature_mode + '/' + args.model_name + '/' +
                 datetime.datetime.now().strftime('%Y%m%d-%H%M%S')
             )
     if not os.path.exists(model_path):
@@ -209,6 +209,7 @@ def get_feature_flat_dim(model):
 
 def evaluate(val_dataloader, decoder):
 #    pdb.set_trace()
+    decoder.eval()
     with torch.no_grad():
         logging.info("Running on Validation set")
         val_gen_inds= []
@@ -245,7 +246,7 @@ def evaluate(val_dataloader, decoder):
 
 if __name__ == "__main__":
     with slaunch_ipdb_on_exception():
-#        pdb.set_trace()
+        pdb.set_trace()
         with open(args.save_data_fname, 'rb') as input_:
             vocab= pickle.load(input_)
             emb_matrix, word_to_idx, idx_to_word= vocab.word_embeddings, vocab.word2idx, vocab.idx2word
@@ -255,7 +256,7 @@ if __name__ == "__main__":
         
         train_shape, val_shape= get_feature_flat_dim(cnn_model.to('cpu'))
         img_feature_size= np.product(train_shape[1:])
-        
+        pdb.set_trace()
         #Construct decoder graph
         if args.feature_mode == 'features':
             decoder= DecoderfromFeatures(img_feature_size, emb_matrix, len(emb_matrix), 

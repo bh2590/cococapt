@@ -178,7 +178,7 @@ class CocoCaptions_Cust(Dataset):
         from pycocotools.coco import COCO
         self.root = os.path.expanduser(root)
         self.coco = COCO(annFile)
-        self.ids = list(self.coco.imgs.keys())
+        self.ids = list(self.coco.anns.keys())
         self.transform = transform
         self.target_transform = target_transform
 
@@ -190,24 +190,81 @@ class CocoCaptions_Cust(Dataset):
             tuple: Tuple (image, target). target is a list of captions for the image.
         """
         coco = self.coco
-        img_id = self.ids[index]
-        ann_ids = coco.getAnnIds(imgIds=img_id)
-        anns = coco.loadAnns(ann_ids)
-        target = [ann['caption'] for ann in anns]
-
+        ann_id = self.ids[index]
+        target = coco.anns[ann_id]['caption']
+        img_id = coco.anns[ann_id]['image_id']
         path = coco.loadImgs(img_id)[0]['file_name']
 
-        img = Image.open(os.path.join(self.root, path)).convert('RGB')
+        image = Image.open(os.path.join(self.root, path)).convert('RGB')
         if self.transform is not None:
-            img = self.transform(img)
+            image = self.transform(image)
 
-        if self.target_transform is not None:
-            target = self.target_transform(target)
-
-        return img, target, img_id
+        return image, target, img_id
 
     def __len__(self):
         return len(self.ids)
+#
+#
+#    coco = self.coco
+#    img_id = self.ids[index]
+#    ann_ids = coco.getAnnIds(imgIds=img_id)
+#    anns = coco.loadAnns(ann_ids)
+#    target = [ann['caption'] for ann in anns]
+#    path = coco.loadImgs(img_id)[0]['file_name']
+#    img = Image.open(os.path.join(self.root, path)).convert('RGB')
+#
+#
+#    def __init__(self, root, annFile, transform=None, target_transform=None):
+#        from pycocotools.coco import COCO
+#        self.root = os.path.expanduser(root)
+#        self.coco = COCO(annFile)
+#        self.ids = list(self.coco.imgs.keys())
+#        self.transform = transform
+#        self.target_transform = target_transform
+
+
+#class CocoCaptions_Cust(Dataset):
+#    """COCO Custom Dataset compatible with torch.utils.data.DataLoader."""
+#    def __init__(self, root, json, vocab, transform=None):
+#        """Set the path for images, captions and vocabulary wrapper.
+#        
+#        Args:
+#            root: image directory.
+#            json: coco annotation file path.
+#            vocab: vocabulary wrapper.
+#            transform: image transformer.
+#        """
+#        self.root = root
+#        self.coco = COCO(json)
+#        self.ids = list(self.coco.anns.keys())
+#        self.vocab = vocab
+#        self.transform = transform
+#
+#    def __getitem__(self, index):
+#        """Returns one data pair (image and caption)."""
+#        pdb.set_trace()
+#        coco = self.coco
+#        vocab = self.vocab
+#        ann_id = self.ids[index]
+#        caption = coco.anns[ann_id]['caption']
+#        img_id = coco.anns[ann_id]['image_id']
+#        path = coco.loadImgs(img_id)[0]['file_name']
+#
+#        image = Image.open(os.path.join(self.root, path)).convert('RGB')
+#        if self.transform is not None:
+#            image = self.transform(image)
+#
+#        # Convert caption (string) to word ids.
+#        tokens = word_tokenize(str(caption).lower())
+#        caption = []
+#        caption.append(vocab('<start>'))
+#        caption.extend([vocab(token) for token in tokens])
+#        caption.append(vocab('<end>'))
+#        target = torch.Tensor(caption)
+#        return image, target
+#
+#    def __len__(self):
+#        return len(self.ids)
 
 
 class CocoCaptions_Features(Dataset):
@@ -215,7 +272,7 @@ class CocoCaptions_Features(Dataset):
         from pycocotools.coco import COCO
         self.features_file = os.path.expanduser(root)
         self.coco = COCO(annFile)
-        self.ids = list(self.coco.imgs.keys())
+        self.ids = list(self.coco.anns.keys())
         self.transform = transform
         self.target_transform = target_transform
         
@@ -238,12 +295,18 @@ class CocoCaptions_Features(Dataset):
         Returns:
             tuple: Tuple (feature, target). target is a list of captions for the image.
         """
-        coco = self.coco
-        img_id = self.ids[index]
-        ann_ids = coco.getAnnIds(imgIds=img_id)
-        anns = coco.loadAnns(ann_ids)
-        target = [ann['caption'] for ann in anns]
 
+        pdb.set_trace()
+        coco = self.coco
+        ann_id = self.ids[index]
+        target = coco.anns[ann_id]['caption']
+        img_id = coco.anns[ann_id]['image_id']
+#        path = coco.loadImgs(img_id)[0]['file_name']
+#
+#        image = Image.open(os.path.join(self.root, path)).convert('RGB')
+#        if self.transform is not None:
+#            image = self.transform(image)
+        
         feature = self.features[index]
         feature = torch.tensor(feature)
         if self.transform is not None:
