@@ -154,31 +154,13 @@ def get_word_id(w, word_to_idx):
         return word_to_idx[SpecialTokens().OOV]
 
 
-class MyCOCODset(Dataset):
-    def __init__(self, coco_dset, word_to_idx, max_seq_len, pad_id):
-        self.coco_dset= coco_dset
-        self.word_to_idx= word_to_idx
-        self.max_seq_len= max_seq_len
-        self.pad_id= pad_id
-    
-    def __getitem__(self, ind):
-        img, self.str_caption, img_idx= self.coco_dset[ind]
-        self.str_caption= self.str_caption[np.random.randint(len(self.str_caption))].lower()
-        ind_caption= [get_word_id(w, self.word_to_idx) for w in word_tokenize(clean_text(self.str_caption))]
-        real_len= min(self.max_seq_len, len(ind_caption))
-        ind_caption= ind_caption + [self.pad_id] * (self.max_seq_len - real_len)
-        return img, torch.tensor(ind_caption[:self.max_seq_len], dtype= torch.long), real_len, img_idx
-    
-    def __len__(self):
-        return len(self.coco_dset)
-
-
 class CocoCaptions_Cust(Dataset):
     def __init__(self, root, annFile, transform=None, target_transform=None):
         from pycocotools.coco import COCO
         self.root = os.path.expanduser(root)
         self.coco = COCO(annFile)
         self.ids = list(self.coco.anns.keys())
+        self.feat_ids = list(self.coco.imgs.keys())
         self.transform = transform
         self.target_transform = target_transform
 
@@ -203,8 +185,123 @@ class CocoCaptions_Cust(Dataset):
 
     def __len__(self):
         return len(self.ids)
-#
-#
+
+
+
+class MyCOCODset_old(Dataset): #with image keys, multiple captions 
+    def __init__(self, coco_dset, word_to_idx, max_seq_len, pad_id):
+        self.coco_dset= coco_dset
+        self.word_to_idx= word_to_idx
+        self.max_seq_len= max_seq_len
+        self.pad_id= pad_id
+    
+    def __getitem__(self, ind):
+        img, self.str_caption, img_idx= self.coco_dset[ind]
+        self.str_caption= self.str_caption[np.random.randint(len(self.str_caption))].lower()
+        ind_caption= [get_word_id(w, self.word_to_idx) for w in word_tokenize(clean_text(self.str_caption))]
+        real_len= min(self.max_seq_len, len(ind_caption))
+        ind_caption= ind_caption + [self.pad_id] * (self.max_seq_len - real_len)
+        return img, torch.tensor(ind_caption[:self.max_seq_len], dtype= torch.long), real_len, img_idx
+    
+    def __len__(self):
+        return len(self.coco_dset)
+
+class MyCOCODset(Dataset): #with annotation keys, only 1 caption
+    def __init__(self, coco_dset, word_to_idx, max_seq_len, pad_id):
+        self.coco_dset= coco_dset
+        self.word_to_idx= word_to_idx
+        self.max_seq_len= max_seq_len
+        self.pad_id= pad_id
+        self.START= self.word_to_idx[SpecialTokens().START]
+        self.END= self.word_to_idx[SpecialTokens().END]
+    
+    def __getitem__(self, ind):
+        img, self.str_caption, img_idx= self.coco_dset[ind]
+        self.str_caption= self.str_caption.lower()
+        tokens= [self.START] + word_tokenize(clean_text(self.str_caption))
+        tokens= tokens[:self.max_seq_len]
+        if len(tokens) == self.max_seq_len:
+            tokens[-1]= self.END
+        else:
+            tokens= tokens + [self.END]
+        ind_caption= [get_word_id(w, self.word_to_idx) for w in tokens]
+        real_len= min(self.max_seq_len, len(ind_caption))
+        ind_caption= ind_caption + [self.pad_id] * (self.max_seq_len - real_len)
+        return img, torch.tensor(ind_caption, dtype= torch.long), real_len, img_idx
+    
+    def __len__(self):
+        return len(self.coco_dset)
+
+
+class CocoCaptions_Features(Dataset):
+    def __init__(self, root, annFile, feature_shape= None, transform=None, target_transform=None):
+        from pycocotools.coco import COCO
+        self.features_file = os.path.expanduser(root)
+        self.coco = COCO(annFile)
+        self.ids = list(self.coco.anns.keys())
+        self.feat_ids = list(self.coco.imgs.keys())
+        self.transform = transform
+        self.target_transform = target_transform
+        file_type= self.features_file.split('.')[-1]
+        
+        if file_type == 'pickle' or file_type == 'pkl':
+            with open(self.features_file, 'rb') as fin:
+                self.features= pickle.load(fin)
+        elif file_type == 'dat':
+            if feature_shape is None:
+                raise ValueError("features shape must be provided")
+            feature_shape= list(feature_shape)
+            feature_shape[0]= len(self.feat_ids)
+            feature_shape= tuple(feature_shape)
+            self.features= np.memmap(self.features_file, dtype= np.float32, mode= 'r', shape= feature_shape)
+        else:
+            raise ValueError("Incompatible features file type")
+
+    def __getitem__(self, index):
+        """
+        Args:
+            index (int): Index
+        Returns:
+            tuple: Tuple (feature, target). target is a list of captions for the image.
+        """
+
+#        pdb.set_trace()
+        coco = self.coco
+        ann_id = self.ids[index]
+        target = coco.anns[ann_id]['caption']
+        img_id = coco.anns[ann_id]['image_id']
+        
+        feature_ind= self.feat_ids.index(img_id)
+        feature = self.features[feature_ind]
+        feature = torch.tensor(feature)
+        if self.transform is not None:
+            feature = self.transform(feature)
+
+        if self.target_transform is not None:
+            target = self.target_transform(target)
+
+        return feature, target, img_id
+
+    def __len__(self):
+        return len(self.ids)
+
+
+
+
+def main(filename= 'saved_data.pickle'):
+    tokens= make_caption_word_dict()
+    emb_mat, token_dict= loadWordVectors(tokens)
+    obj= SavedData(emb_mat, token_dict)
+    with open(filename, 'wb') as output:
+        pickle.dump(obj, output)
+    logger.info("Data Saved!")
+
+
+def fake_data(n, seqlen, vsize):
+    from random_words import RandomWords
+    rw = RandomWords()
+    pass
+
 #    coco = self.coco
 #    img_id = self.ids[index]
 #    ann_ids = coco.getAnnIds(imgIds=img_id)
@@ -265,77 +362,6 @@ class CocoCaptions_Cust(Dataset):
 #
 #    def __len__(self):
 #        return len(self.ids)
-
-
-class CocoCaptions_Features(Dataset):
-    def __init__(self, root, annFile, feature_shape= None, transform=None, target_transform=None):
-        from pycocotools.coco import COCO
-        self.features_file = os.path.expanduser(root)
-        self.coco = COCO(annFile)
-        self.ids = list(self.coco.anns.keys())
-        self.transform = transform
-        self.target_transform = target_transform
-        
-        file_type= self.features_file.split('.')[-1]
-        
-        if file_type == 'pickle' or file_type == 'pkl':
-            with open(self.features_file, 'rb') as fin:
-                self.features= pickle.load(fin)
-        elif file_type == 'dat':
-            if feature_shape is None:
-                raise ValueError("features shape must be provided")
-            self.features= np.memmap(self.features_file, dtype= np.float32, mode= 'r', shape= feature_shape)
-        else:
-            raise ValueError("Incompatible features file type")
-
-    def __getitem__(self, index):
-        """
-        Args:
-            index (int): Index
-        Returns:
-            tuple: Tuple (feature, target). target is a list of captions for the image.
-        """
-
-        pdb.set_trace()
-        coco = self.coco
-        ann_id = self.ids[index]
-        target = coco.anns[ann_id]['caption']
-        img_id = coco.anns[ann_id]['image_id']
-#        path = coco.loadImgs(img_id)[0]['file_name']
-#
-#        image = Image.open(os.path.join(self.root, path)).convert('RGB')
-#        if self.transform is not None:
-#            image = self.transform(image)
-        
-        feature = self.features[index]
-        feature = torch.tensor(feature)
-        if self.transform is not None:
-            feature = self.transform(feature)
-
-        if self.target_transform is not None:
-            target = self.target_transform(target)
-
-        return feature, target, img_id
-
-    def __len__(self):
-        return len(self.ids)
-
-
-
-
-def main(filename= 'saved_data.pickle'):
-    tokens= make_caption_word_dict()
-    emb_mat, token_dict= loadWordVectors(tokens)
-    obj= SavedData(emb_mat, token_dict)
-    with open(filename, 'wb') as output:
-        pickle.dump(obj, output)
-    logger.info("Data Saved!")
-
-
-def fake_data(n, seqlen, vsize):
-    from random_words import RandomWords
-    rw = RandomWords()
-    pass
 
 
 if __name__ == "__main__":

@@ -63,6 +63,37 @@ class CocoCaptions_Cust(Dataset):
         return len(self.ids)
 
 
+#class CocoCaptions_Cust(Dataset):
+#    def __init__(self, root, annFile, transform=None, target_transform=None):
+#        from pycocotools.coco import COCO
+#        self.root = os.path.expanduser(root)
+#        self.coco = COCO(annFile)
+#        self.ids = list(self.coco.anns.keys())
+#        self.transform = transform
+#        self.target_transform = target_transform
+#
+#    def __getitem__(self, index):
+#        """
+#        Args:
+#            index (int): Index
+#        Returns:
+#            tuple: Tuple (image, target). target is a list of captions for the image.
+#        """
+#        coco = self.coco
+#        ann_id = self.ids[index]
+#        target = coco.anns[ann_id]['caption']
+#        img_id = coco.anns[ann_id]['image_id']
+#        path = coco.loadImgs(img_id)[0]['file_name']
+#
+#        image = Image.open(os.path.join(self.root, path)).convert('RGB')
+#        if self.transform is not None:
+#            image = self.transform(image)
+#
+#        return image, target, img_id
+#
+#    def __len__(self):
+#        return len(self.ids)
+
 #download pre-trained models
 import torchvision.models as models
 resnet18 = models.resnet18(pretrained=True)
