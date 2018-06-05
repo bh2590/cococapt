@@ -151,8 +151,8 @@ class DecoderfromFeatures(nn.Module):
         self.flatten= Flatten()
         self.lin_project_from_img = nn.Linear(img_feature_size, word_vec_size)
         self.emb_layer= nn.Embedding(vocab_size, word_vec_size)
-        self.emb_layer.weight= nn.Parameter(torch.from_numpy(emb_mat.astype(np.float32)), 
-                                            requires_grad= trainable_embeddings)
+#        self.emb_layer.weight= nn.Parameter(torch.from_numpy(emb_mat.astype(np.float32)), 
+#                                            requires_grad= trainable_embeddings)
         self.gru_layer= nn.GRU(input_size= word_vec_size, hidden_size= output_size, num_layers= num_layers,
                            dropout= dropout, batch_first= self.batch_first, bidirectional= bidirectional)
         self.vocab_project= nn.Linear(output_size, vocab_size)
@@ -161,13 +161,13 @@ class DecoderfromFeatures(nn.Module):
     
     def forward(self, img_rep, targets, real_lens):
 #        pdb.set_trace()
-        img_flat= self.flatten(img_rep)
-        img_projection= self.lin_project_from_img(img_flat)
+        img_flat= self.flatten(img_rep) # (b, C, H, W) 
+        img_projection= self.lin_project_from_img(img_flat) # (b, )
         img_projection= self.bn(img_projection)
         start_batch= img_projection.unsqueeze(1)
         teacher_inps= targets[:, :-1]
         emb_inps= torch.cat([start_batch, self.emb_layer(teacher_inps)], dim= 1)
-        real_lens+= 1
+#        real_lens+= 1
         real_lens= real_lens.clamp(0, self.max_seq_len)
         real_lens_sorted, idx = real_lens.sort(0, descending=True)
         emb_inps_sorted = emb_inps[idx]

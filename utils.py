@@ -264,8 +264,6 @@ class CocoCaptions_Features(Dataset):
         Returns:
             tuple: Tuple (feature, target). target is a list of captions for the image.
         """
-
-#        pdb.set_trace()
         coco = self.coco
         ann_id = self.ids[index]
         target = coco.anns[ann_id]['caption']
@@ -285,6 +283,70 @@ class CocoCaptions_Features(Dataset):
     def __len__(self):
         return len(self.ids)
 
+
+def get_vocab(w, vocab):
+    try:
+        return vocab(w)
+    except KeyError:
+        return vocab(SpecialTokens().OOV)
+
+
+class CocoCaptions_Features2(Dataset):
+    def __init__(self, root, annFile, feature_shape= None, transform=None, 
+                 target_transform=None, vocab= None):
+        from pycocotools.coco import COCO
+        self.features_file = os.path.expanduser(root)
+        self.coco = COCO(annFile)
+        self.ids = list(self.coco.anns.keys())
+        self.feat_ids = list(self.coco.imgs.keys())
+        self.transform = transform
+        self.target_transform = target_transform
+        self.vocab= vocab
+        file_type= self.features_file.split('.')[-1]
+        
+        if file_type == 'pickle' or file_type == 'pkl':
+            with open(self.features_file, 'rb') as fin:
+                self.features= pickle.load(fin)
+        elif file_type == 'dat':
+            if feature_shape is None:
+                raise ValueError("features shape must be provided")
+            feature_shape= list(feature_shape)
+            feature_shape[0]= len(self.feat_ids)
+            feature_shape= tuple(feature_shape)
+            self.features= np.memmap(self.features_file, dtype= np.float32, mode= 'r', shape= feature_shape)
+        else:
+            raise ValueError("Incompatible features file type")
+
+    def __getitem__(self, index):
+        """
+        Args:
+            index (int): Index
+        Returns:
+            tuple: Tuple (feature, target). target is a list of captions for the image.
+        """
+        coco = self.coco
+        ann_id = self.ids[index]
+        caption = coco.anns[ann_id]['caption']
+        img_id = coco.anns[ann_id]['image_id']
+        
+        feature_ind= self.feat_ids.index(img_id)
+        feature = self.features[feature_ind]
+        feature = torch.tensor(feature)
+        if self.transform is not None:
+            feature = self.transform(feature)
+
+        # Convert caption (string) to word ids.
+        tokens = word_tokenize(str(caption).lower())
+        caption = []
+        caption.append(self.vocab('<start>'))
+        caption.extend([get_vocab(token, self.vocab) for token in tokens])
+        caption.append(self.vocab('<end>'))
+        target = torch.Tensor(caption)
+
+        return feature, target, img_id
+
+    def __len__(self):
+        return len(self.ids)
 
 
 

@@ -30,7 +30,7 @@ import pdb
 from saved_data import SavedData
 import dill as pickle
 from utils import (MyCOCODset, make_caption_word_dict, 
-                   CocoCaptions_Cust, CocoCaptions_Features)
+                   CocoCaptions_Cust, CocoCaptions_Features, CocoCaptions_Features2)
 from model import Encoder, Decoder, fn, DecoderfromClassLogits, DecoderfromFeatures
 from image_captioning.build_vocab import SpecialTokens
 
@@ -40,11 +40,42 @@ from config import args
 from scores import get_scores_im
 
 
-def get_dataloader(token_dict, mode= 'train', feature_shape= None, filename= None):
+def collate_fn(data):
+    """Creates mini-batch tensors from the list of tuples (image, caption).
+    
+    We should build custom collate_fn rather than using default collate_fn, 
+    because merging caption (including padding) is not supported in default.
+
+    Args:
+        data: list of tuple (image, caption). 
+            - image: torch tensor of shape (3, 256, 256).
+            - caption: torch tensor of shape (?); variable length.
+
+    Returns:
+        images: torch tensor of shape (batch_size, 3, 256, 256).
+        targets: torch tensor of shape (batch_size, padded_length).
+        lengths: list; valid length for each padded caption.
+    """
+    # Sort a data list by caption length (descending order).
+#    pdb.set_trace()
+    data.sort(key=lambda x: len(x[1]), reverse=True)
+    images, captions, img_ids = zip(*data)
+
+    # Merge images (from tuple of 3D tensor to 4D tensor).
+    images = torch.stack(images, 0)
+#    img_ids= np.concatenate(img_ids, 0)
+
+    # Merge captions (from tuple of 1D tensor to 2D tensor).
+    lengths = [len(cap) for cap in captions]
+    targets = torch.zeros(len(captions), max(lengths)).long()
+    for i, cap in enumerate(captions):
+        end = lengths[i]
+        targets[i, :end] = cap[:end]
+    return images, targets, torch.tensor(lengths).long(), img_ids
+
+
+def get_dataloader_old(token_dict, mode= 'train', feature_shape= None, filename= None):
     if mode == 'train':
-#        data_transform = transforms.Compose([
-#                transforms.ToTensor()
-#            ])
         data_transform= None
         caption_dset = CocoCaptions_Features(root= filename, 
                                          annFile= args.train_caption_path,
@@ -57,9 +88,6 @@ def get_dataloader(token_dict, mode= 'train', feature_shape= None, filename= Non
                                shuffle=True, num_workers= args.num_workers)
         return dataloader, my_dset
     elif mode == 'val':
-#        data_transform = transforms.Compose([
-#                transforms.ToTensor()
-#            ])
         data_transform= None
         caption_dset = CocoCaptions_Features(root= filename, 
                                          annFile= args.val_caption_path,
@@ -73,6 +101,58 @@ def get_dataloader(token_dict, mode= 'train', feature_shape= None, filename= Non
         return dataloader, my_dset
     else:
         raise NotImplementedError("Only validation and train")
+
+
+def get_dataloader(token_dict, mode= 'train', feature_shape= None, 
+                   filename= None, vocab= None):
+    if mode == 'train':
+        data_transform= None
+        caption_dset = CocoCaptions_Features2(root= filename, 
+                                         annFile= args.train_caption_path,
+                                         transform= data_transform,
+                                         feature_shape= feature_shape,
+                                         vocab= vocab)
+        #Initialize dataloader: make separate ones for training and validation datasets once downloaded
+        dataloader= DataLoader(caption_dset, batch_size= args.batch_size,
+                               shuffle=True, num_workers= args.num_workers,
+                               collate_fn=collate_fn)
+        return dataloader, caption_dset
+    elif mode == 'val':
+        data_transform= None
+        caption_dset = CocoCaptions_Features2(root= filename, 
+                                         annFile= args.val_caption_path,
+                                         transform= data_transform,
+                                         feature_shape= feature_shape,
+                                         vocab= vocab)
+        #Initialize dataloader: make separate ones for training and validation datasets once downloaded
+        dataloader= DataLoader(caption_dset, batch_size= args.batch_size,
+                               shuffle=False, num_workers= 0,
+                               collate_fn=collate_fn)
+        return dataloader, caption_dset
+    else:
+        raise NotImplementedError("Only validation and train")
+
+
+def get_loader(root, json, vocab, transform, batch_size, shuffle, num_workers):
+    """Returns torch.utils.data.DataLoader for custom coco dataset."""
+    # COCO caption dataset
+    coco = CocoDataset(root=root,
+                       json=json,
+                       vocab=vocab,
+                       transform=transform)
+    
+    # Data loader for COCO dataset
+    # This will return (images, captions, lengths) for each iteration.
+    # images: a tensor of shape (batch_size, 3, 224, 224).
+    # captions: a tensor of shape (batch_size, padded_length).
+    # lengths: a list indicating valid length for each caption. length is (batch_size).
+    data_loader = torch.utils.data.DataLoader(dataset=coco, 
+                                              batch_size=batch_size,
+                                              shuffle=shuffle,
+                                              num_workers=num_workers,
+                                              collate_fn=collate_fn)
+    return data_loader
+
 
 def get_trainable_params(params):
     tr_params= []
@@ -267,8 +347,10 @@ if __name__ == "__main__":
                                          args.embed_size, args.num_layers, 
                                          args.hidden_size, word_to_idx).to(device)
         
-        train_dataloader, my_dset_train= get_dataloader(word_to_idx, 'train', train_shape, train_features_file)
-        val_dataloader, my_dset_val= get_dataloader(word_to_idx, 'val', val_shape, val_features_file)
+        train_dataloader, my_dset_train= get_dataloader(word_to_idx, 'train', train_shape, train_features_file,
+                                                        vocab= vocab)
+        val_dataloader, my_dset_val= get_dataloader(word_to_idx, 'val', val_shape, val_features_file,
+                                                    vocab= vocab)
         
         vocab_size= len(emb_matrix)
         best_score= 0.0 #Check against validation score after every epoch (or few steps)
@@ -282,9 +364,9 @@ if __name__ == "__main__":
 #            pdb.set_trace()
             decoder.train()
             for i_batch, (img_features, targets_batch, rlen_batch, idx_batch) in enumerate(train_dataloader):
-                img_features, targets_batch, rlen_batch= (img_features.to(device), 
-                                                       targets_batch.to(device), 
-                                                       rlen_batch.to(device))
+                img_features, targets_batch= (img_features.to(device), 
+                                              targets_batch.to(device))
+                rlen_batch= rlen_batch.to(device)
                 predictions= decoder(img_features, targets_batch, rlen_batch)
                 targets_batch= targets_batch.view(-1)
                 predictions= predictions.view(-1, vocab_size)
