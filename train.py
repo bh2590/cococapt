@@ -37,7 +37,7 @@ from image_captioning.build_vocab import SpecialTokens
 import json
 from pprint import pprint
 from config import args
-from scores import get_scores_im
+from scores import get_scores_im, get_scores
 
 
 def collate_fn(data):
@@ -187,7 +187,7 @@ def save_best_weights(decoder, epoch, step):
         model_path, 'best_decoder-{}-{}.ckpt'.format(epoch+1, step+1)))
 
 
-def save_to_json(val_gen_words_dict):
+def save_to_json(val_gen_words_dict, metrics= None):
     temp_list= []
     for k, v in val_gen_words_dict.items():
         temp_dict= {}
@@ -195,8 +195,17 @@ def save_to_json(val_gen_words_dict):
         temp_dict["caption"]= str(v)
         temp_list.append(temp_dict)
     
-    with open(args.output_json, 'w') as out:
+    resFile='./evaluate/results/captions_val2017_fakecap_results.json'
+    with open(resFile, 'w') as out:
         json.dump(temp_list, out)
+    
+    scores= get_scores(resFile= resFile)
+    if metrics is None:
+        cum_score= np.mean([scores[k] for k in scores.keys()])
+    else:
+        cum_score= np.mean([scores[k] for k in scores.keys() if k in metrics])
+    
+    return cum_score
 
 
 def evaluate_captions(val_gen_words_dict, metrics= None):
@@ -300,11 +309,13 @@ def evaluate(val_dataloader, decoder):
                                                    rlen_batch.to(device))
             predictions_idx= decoder.inference(img_features)
             val_gen_inds.append(predictions_idx.cpu().numpy())
-            idx_list.append(idx_batch.cpu().numpy())
+#            idx_list.append(idx_batch.cpu().numpy())
+            idx_list.append(np.array(idx_batch))
             # Print log info
             if i_batch % args.log_step == 0:
                 logging.info('Epoch [{}/{}], Dev Step {}'.format(epoch, args.num_epochs, i_batch))
-        
+    
+#    pdb.set_trace()
     val_gen_inds= np.concatenate(val_gen_inds, axis=0)
     idx_concat= np.concatenate(idx_list, axis= 0)
     
@@ -326,7 +337,7 @@ def evaluate(val_dataloader, decoder):
 
 if __name__ == "__main__":
     with slaunch_ipdb_on_exception():
-        pdb.set_trace()
+#        pdb.set_trace()
         with open(args.save_data_fname, 'rb') as input_:
             vocab= pickle.load(input_)
             emb_matrix, word_to_idx, idx_to_word= vocab.word_embeddings, vocab.word2idx, vocab.idx2word
@@ -336,7 +347,7 @@ if __name__ == "__main__":
         
         train_shape, val_shape= get_feature_flat_dim(cnn_model.to('cpu'))
         img_feature_size= np.product(train_shape[1:])
-        pdb.set_trace()
+#        pdb.set_trace()
         #Construct decoder graph
         if args.feature_mode == 'features':
             decoder= DecoderfromFeatures(img_feature_size, emb_matrix, len(emb_matrix), 

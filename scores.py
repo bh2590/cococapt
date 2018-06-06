@@ -11,7 +11,7 @@ import json
 from json import encoder
 encoder.FLOAT_REPR = lambda o: format(o, '.3f')
 
-def get_scores(annFile='./evaluate/annotations/captions_val2017.json',
+def get_scores(annFile='/home/hanozbhathena/project/data/annotations/captions_val2017.json',
          resFile='./evaluate/results/captions_val2017_fakecap_results.json',
          evalImgsFile=None, evalFile=None):
     coco = COCO(annFile)

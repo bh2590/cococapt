@@ -181,7 +181,7 @@ class DecoderfromFeatures(nn.Module):
         final_out= self.vocab_project(out)
         return final_out
     
-    def inference(self, img_rep):
+    def inference_sample(self, img_rep):
         img_flat= self.flatten(img_rep)
         img_projection= self.lin_project_from_img(img_flat)
         inp= img_projection.unsqueeze(1)
@@ -201,7 +201,24 @@ class DecoderfromFeatures(nn.Module):
 #        assert output_inds.size(1) == self.max_seq_len, "Incorrect sequence generated length"
         return output_inds
 
-
+    def inference(self, img_rep, states=None): #greedy
+        """Generate captions for given image features using greedy search."""
+        sampled_ids = []
+        img_flat= self.flatten(img_rep)
+        img_projection= self.lin_project_from_img(img_flat)
+        inp= img_projection.unsqueeze(1)
+        for step in range(self.max_seq_len):
+            if step == 0:
+                hiddens, states= self.gru_layer(inp)
+            else:
+                hiddens, states= self.gru_layer(inp, states)
+            outputs = self.vocab_project(hiddens.squeeze(1))            # outputs:  (batch_size, vocab_size)
+            _, predicted = outputs.max(1)                        # predicted: (batch_size)
+            sampled_ids.append(predicted)
+            inp = self.emb_layer(predicted)                       # inputs: (batch_size, embed_size)
+            inp = inp.unsqueeze(1)                         # inputs: (batch_size, 1, embed_size)
+        sampled_ids = torch.stack(sampled_ids, 1)                # sampled_ids: (batch_size, max_seq_length)
+        return sampled_ids
 
 class DecoderfromClassLogits(nn.Module):
     def __init__(self, img_feature_size, emb_mat, vocab_size, word_vec_size, num_layers, output_size, word_to_idx,
