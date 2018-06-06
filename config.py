@@ -32,9 +32,9 @@ parser.add_argument('--log_step', type=int , default=100, help='step size for pr
 parser.add_argument('--save_step', type=int , default=1000, help='step size for saving trained models')
 
 # Model parameters
-parser.add_argument('--model_name', type=str, default='vgg16', 
+parser.add_argument('--model_name', type=str, default='resnet18', 
                     help='model name')
-parser.add_argument('--feature_mode', type=str, default='classes', 
+parser.add_argument('--feature_mode', type=str, default='features', 
                     help='either one of features or classes')
 parser.add_argument('--embed_size', type=int , default=300, help='dimension of word embedding vectors')
 parser.add_argument('--hidden_size', type=int , default=512, help='dimension of lstm hidden states')
@@ -48,20 +48,14 @@ parser.add_argument('--output_json', type=str,
                     default='val_generated_capts.json', 
                     help='val generated captions filename')
 parser.add_argument('--topk_classes', type=int, default=5)
+parser.add_argument('--pretrained_embeddings', type=ast.literal_eval , default=False, 
+                    help='whether to use pre trained embeddings or train embeddings from scratch')
 
 #Training parameters
-parser.add_argument('--num_epochs', type=int, default=10)
-parser.add_argument('--batch_size', type=int, default=64)
+parser.add_argument('--num_epochs', type=int, default=3)
+parser.add_argument('--batch_size', type=int, default=128)
 parser.add_argument('--num_workers', type=int, default=2)
 parser.add_argument('--learning_rate', type=float, default=0.001)
 
-
-#if args.feature_mode == 'features':
-#    FILE_BASE= '_img_features.dat'
-#else:
-#    FILE_BASE= '_img_distr.pickle'
-#train_input_data_dir= (os.path.join(args.train_image_dir, args.model_name), 'train_' + FILE_BASE)
-#dev_input_data_dir= (os.path.join(args.dev_image_dir, args.model_name), 'val_' + FILE_BASE)
-#
 
 args = parser.parse_args()

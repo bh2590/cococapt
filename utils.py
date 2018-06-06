@@ -29,6 +29,7 @@ logger = logging.getLogger("Data preprocessing")
 logger.setLevel(logging.INFO)
 logging.basicConfig(format='%(levelname)s:%(message)s', level=logging.INFO)
 from image_captioning.build_vocab import SpecialTokens
+from pycocotools.coco import COCO
 
 
 def build_dict(words, max_words=None, offset=0):
@@ -291,10 +292,11 @@ def get_vocab(w, vocab):
         return vocab(SpecialTokens().OOV)
 
 
+
+
 class CocoCaptions_Features2(Dataset):
     def __init__(self, root, annFile, feature_shape= None, transform=None, 
                  target_transform=None, vocab= None):
-        from pycocotools.coco import COCO
         self.features_file = os.path.expanduser(root)
         self.coco = COCO(annFile)
         self.ids = list(self.coco.anns.keys())
@@ -342,12 +344,63 @@ class CocoCaptions_Features2(Dataset):
         caption.extend([get_vocab(token, self.vocab) for token in tokens])
         caption.append(self.vocab('<end>'))
         target = torch.Tensor(caption)
-
         return feature, target, img_id
 
     def __len__(self):
         return len(self.ids)
 
+
+def load_image(image_path, transform=None):
+    image = Image.open(image_path).convert('RGB')
+    image = image.resize([224, 224], Image.LANCZOS)
+    
+    if transform is not None:
+        image = transform(image)
+    
+    return image
+
+
+class CocoDatasetDev(Dataset):
+    """COCO Custom Dataset compatible with torch.utils.data.DataLoader."""
+    def __init__(self, root, annFile, transform=None, 
+                 target_transform=None, vocab= None):
+        """Set the path for images, captions and vocabulary wrapper.
+        
+        Args:
+            root: image directory.
+            json: coco annotation file path.
+            vocab: vocabulary wrapper.
+            transform: image transformer.
+        """
+        self.root = root
+        self.coco = COCO(annFile)
+        self.ids = list(self.coco.anns.keys())
+        self.feat_ids = list(self.coco.imgs.keys())
+        self.transform = transform
+        self.vocab= vocab
+    
+    def __getitem__(self, index):
+        """Returns one data pair (image and caption)."""
+        coco = self.coco
+        vocab = self.vocab
+        ann_id = self.ids[index]
+        caption = coco.anns[ann_id]['caption']
+        img_id = coco.anns[ann_id]['image_id']
+        path = coco.loadImgs(img_id)[0]['file_name']
+        
+        image = load_image(os.path.join(self.root, path), self.transform)
+        
+        # Convert caption (string) to word ids.
+        tokens = word_tokenize(str(caption).lower())
+        caption = []
+        caption.append(vocab('<start>'))
+        caption.extend([get_vocab(token, self.vocab) for token in tokens])
+        caption.append(vocab('<end>'))
+        target = torch.Tensor(caption)
+        return image, target, img_id
+
+    def __len__(self):
+        return len(self.ids)
 
 
 def main(filename= 'saved_data.pickle'):
@@ -363,67 +416,6 @@ def fake_data(n, seqlen, vsize):
     from random_words import RandomWords
     rw = RandomWords()
     pass
-
-#    coco = self.coco
-#    img_id = self.ids[index]
-#    ann_ids = coco.getAnnIds(imgIds=img_id)
-#    anns = coco.loadAnns(ann_ids)
-#    target = [ann['caption'] for ann in anns]
-#    path = coco.loadImgs(img_id)[0]['file_name']
-#    img = Image.open(os.path.join(self.root, path)).convert('RGB')
-#
-#
-#    def __init__(self, root, annFile, transform=None, target_transform=None):
-#        from pycocotools.coco import COCO
-#        self.root = os.path.expanduser(root)
-#        self.coco = COCO(annFile)
-#        self.ids = list(self.coco.imgs.keys())
-#        self.transform = transform
-#        self.target_transform = target_transform
-
-
-#class CocoCaptions_Cust(Dataset):
-#    """COCO Custom Dataset compatible with torch.utils.data.DataLoader."""
-#    def __init__(self, root, json, vocab, transform=None):
-#        """Set the path for images, captions and vocabulary wrapper.
-#        
-#        Args:
-#            root: image directory.
-#            json: coco annotation file path.
-#            vocab: vocabulary wrapper.
-#            transform: image transformer.
-#        """
-#        self.root = root
-#        self.coco = COCO(json)
-#        self.ids = list(self.coco.anns.keys())
-#        self.vocab = vocab
-#        self.transform = transform
-#
-#    def __getitem__(self, index):
-#        """Returns one data pair (image and caption)."""
-#        pdb.set_trace()
-#        coco = self.coco
-#        vocab = self.vocab
-#        ann_id = self.ids[index]
-#        caption = coco.anns[ann_id]['caption']
-#        img_id = coco.anns[ann_id]['image_id']
-#        path = coco.loadImgs(img_id)[0]['file_name']
-#
-#        image = Image.open(os.path.join(self.root, path)).convert('RGB')
-#        if self.transform is not None:
-#            image = self.transform(image)
-#
-#        # Convert caption (string) to word ids.
-#        tokens = word_tokenize(str(caption).lower())
-#        caption = []
-#        caption.append(vocab('<start>'))
-#        caption.extend([vocab(token) for token in tokens])
-#        caption.append(vocab('<end>'))
-#        target = torch.Tensor(caption)
-#        return image, target
-#
-#    def __len__(self):
-#        return len(self.ids)
 
 
 if __name__ == "__main__":

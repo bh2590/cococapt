@@ -16,6 +16,7 @@ import torchvision.models as models
 import torchvision.datasets as dset
 import torchvision.transforms as transforms
 
+import re
 import datetime
 from torch.utils.data import Dataset, DataLoader
 from nltk.tokenize import word_tokenize, sent_tokenize
@@ -29,7 +30,7 @@ from ipdb import slaunch_ipdb_on_exception
 import pdb
 from saved_data import SavedData
 import dill as pickle
-from utils import (MyCOCODset, make_caption_word_dict, 
+from utils import (MyCOCODset, make_caption_word_dict, CocoDatasetDev,
                    CocoCaptions_Cust, CocoCaptions_Features, CocoCaptions_Features2)
 from model import Encoder, Decoder, fn, DecoderfromClassLogits, DecoderfromFeatures
 from image_captioning.build_vocab import SpecialTokens
@@ -57,13 +58,12 @@ def collate_fn(data):
         lengths: list; valid length for each padded caption.
     """
     # Sort a data list by caption length (descending order).
-#    pdb.set_trace()
+#    try:
     data.sort(key=lambda x: len(x[1]), reverse=True)
     images, captions, img_ids = zip(*data)
 
     # Merge images (from tuple of 3D tensor to 4D tensor).
     images = torch.stack(images, 0)
-#    img_ids= np.concatenate(img_ids, 0)
 
     # Merge captions (from tuple of 1D tensor to 2D tensor).
     lengths = [len(cap) for cap in captions]
@@ -71,36 +71,9 @@ def collate_fn(data):
     for i, cap in enumerate(captions):
         end = lengths[i]
         targets[i, :end] = cap[:end]
+#    except RuntimeError:
+#        pdb.set_trace()
     return images, targets, torch.tensor(lengths).long(), img_ids
-
-
-def get_dataloader_old(token_dict, mode= 'train', feature_shape= None, filename= None):
-    if mode == 'train':
-        data_transform= None
-        caption_dset = CocoCaptions_Features(root= filename, 
-                                         annFile= args.train_caption_path,
-                                         transform= data_transform,
-                                         feature_shape= feature_shape)
-        #Subclass COCO datset
-        my_dset= MyCOCODset(caption_dset, token_dict, args.max_seq_len, word_to_idx[SpecialTokens().PAD])
-        #Initialize dataloader: make separate ones for training and validation datasets once downloaded
-        dataloader= DataLoader(my_dset, batch_size= args.batch_size,
-                               shuffle=True, num_workers= args.num_workers)
-        return dataloader, my_dset
-    elif mode == 'val':
-        data_transform= None
-        caption_dset = CocoCaptions_Features(root= filename, 
-                                         annFile= args.val_caption_path,
-                                         transform= data_transform,
-                                         feature_shape= feature_shape)
-        #Subclass COCO datset
-        my_dset= MyCOCODset(caption_dset, token_dict, args.max_seq_len, word_to_idx[SpecialTokens().PAD])
-        #Initialize dataloader: make separate ones for training and validation datasets once downloaded
-        dataloader= DataLoader(my_dset, batch_size= args.batch_size,
-                               shuffle=False, num_workers= 0)
-        return dataloader, my_dset
-    else:
-        raise NotImplementedError("Only validation and train")
 
 
 def get_dataloader(token_dict, mode= 'train', feature_shape= None, 
@@ -118,12 +91,14 @@ def get_dataloader(token_dict, mode= 'train', feature_shape= None,
                                collate_fn=collate_fn)
         return dataloader, caption_dset
     elif mode == 'val':
-        data_transform= None
-        caption_dset = CocoCaptions_Features2(root= filename, 
-                                         annFile= args.val_caption_path,
-                                         transform= data_transform,
-                                         feature_shape= feature_shape,
-                                         vocab= vocab)
+        data_transform= transforms.Compose([
+            transforms.ToTensor(), 
+            transforms.Normalize((0.485, 0.456, 0.406), 
+                                 (0.229, 0.224, 0.225))])
+        caption_dset = CocoDatasetDev(root= filename, 
+                                     annFile= args.val_caption_path,
+                                     transform= data_transform,
+                                     vocab= vocab)
         #Initialize dataloader: make separate ones for training and validation datasets once downloaded
         dataloader= DataLoader(caption_dset, batch_size= args.batch_size,
                                shuffle=False, num_workers= 0,
@@ -172,6 +147,7 @@ def save_weights(decoder, epoch, step):
     #Later make this to save only after running eval and if better than best_score
     torch.save(decoder.state_dict(), os.path.join(
         model_path, 'decoder-{}-{}.ckpt'.format(epoch+1, step+1)))
+    return model_path
 
 
 def save_best_weights(decoder, epoch, step):
@@ -185,7 +161,7 @@ def save_best_weights(decoder, epoch, step):
     #Later make this to save only after running eval and if better than best_score
     torch.save(decoder.state_dict(), os.path.join(
         model_path, 'best_decoder-{}-{}.ckpt'.format(epoch+1, step+1)))
-
+    return model_path
 
 def save_to_json(val_gen_words_dict, metrics= None):
     temp_list= []
@@ -215,7 +191,6 @@ def evaluate_captions(val_gen_words_dict, metrics= None):
         temp_dict["image_id"]= int(k)
         temp_dict["caption"]= str(v)
         temp_list.append(temp_dict)
-#    pdb.set_trace()
     scores= get_scores_im(result_list= temp_list)
     
     if metrics is None:
@@ -223,7 +198,7 @@ def evaluate_captions(val_gen_words_dict, metrics= None):
     else:
         cum_score= np.mean([scores[k] for k in scores.keys() if k in metrics])
     
-    return cum_score
+    return cum_score, scores
 
 def get_model_wo_last_n_layers(model, n= 1):
     if n == 0:
@@ -273,8 +248,8 @@ def init_model(model_name, feature_mode):
         model= get_model_wo_last_n_layers(model, n= 0)
     
     train_features_file= os.path.join(BASE_DIRECTORY, 'train_' + args.model_name + FILE_BASE)
-    val_features_file= os.path.join(BASE_DIRECTORY, 'val_' + args.model_name + FILE_BASE)
-    
+#    val_features_file= os.path.join(BASE_DIRECTORY, 'val_' + args.model_name + FILE_BASE)
+    val_features_file= '/home/hanozbhathena/project/data/resizeval2017'
     return model, train_features_file, val_features_file
 
 
@@ -285,31 +260,32 @@ def get_feature_flat_dim(model):
             transforms.ToTensor()
         ])
     train_caption_dset = CocoCaptions_Cust(root= '/home/hanozbhathena/project/data/resizetrain2017', 
-                                     annFile= '/home/hanozbhathena/project/data/annotations/captions_train2017.json',
-                                     transform= data_transform)
+                             annFile= '/home/hanozbhathena/project/data/annotations/captions_train2017.json',
+                             transform= data_transform)
     val_caption_dset = CocoCaptions_Cust(root= '/home/hanozbhathena/project/data/resizeval2017', 
-                                     annFile= '/home/hanozbhathena/project/data/annotations/captions_val2017.json',
-                                     transform= data_transform)
+                             annFile= '/home/hanozbhathena/project/data/annotations/captions_val2017.json',
+                             transform= data_transform)
     test= model(train_caption_dset[0][0].unsqueeze(0).to('cpu')).detach().cpu().numpy()
     train_shape= (len(train_caption_dset), *test.shape[1:])
     val_shape= (len(val_caption_dset), *test.shape[1:])
     return train_shape, val_shape
 
 
-def evaluate(val_dataloader, decoder):
+def evaluate(val_dataloader, encoder, decoder):
 #    pdb.set_trace()
+    encoder.eval()
     decoder.eval()
     with torch.no_grad():
         logging.info("Running on Validation set")
         val_gen_inds= []
         idx_list= []
-        for i_batch, (img_features, targets_batch, rlen_batch, idx_batch) in enumerate(val_dataloader):
-            img_features, targets_batch, rlen_batch= (img_features.to(device), 
-                                                   targets_batch.to(device), 
-                                                   rlen_batch.to(device))
+        for i_batch, (image_batch, targets_batch, rlen_batch, idx_batch) in enumerate(val_dataloader):
+            image_batch, targets_batch, rlen_batch= (image_batch.to(device), 
+                                                     targets_batch.to(device), 
+                                                     rlen_batch.to(device))
+            img_features= encoder(image_batch)
             predictions_idx= decoder.inference(img_features)
             val_gen_inds.append(predictions_idx.cpu().numpy())
-#            idx_list.append(idx_batch.cpu().numpy())
             idx_list.append(np.array(idx_batch))
             # Print log info
             if i_batch % args.log_step == 0:
@@ -328,11 +304,19 @@ def evaluate(val_dataloader, decoder):
             if word == SpecialTokens().END or word == SpecialTokens().PAD:
                 break
             temp.append(word)
-        val_gen_words_dict[key]= ' '.join(temp)
+        sentence= ' '.join(temp)
+        val_gen_words_dict[key]= re.sub(SpecialTokens().START, "", sentence)
     save_to_json(val_gen_words_dict)
-    validation_score= evaluate_captions(val_gen_words_dict)
+    validation_score, all_scores= evaluate_captions(val_gen_words_dict)
     logging.info("Epoch {} validation captions saved to".format(epoch, args.output_json))
-    return validation_score
+    return validation_score, all_scores
+
+
+def write_scores(model_path, model_scores_dict, filename= 'val_scores.txt'):
+    with open(os.path.join(model_path, filename), 'a') as fin:
+        for k, v in model_scores_dict.items():
+            fin.write(str(k) + " : " + str(v) + "\n")
+        fin.write('\n\n\n')
 
 
 if __name__ == "__main__":
@@ -342,12 +326,20 @@ if __name__ == "__main__":
             vocab= pickle.load(input_)
             emb_matrix, word_to_idx, idx_to_word= vocab.word_embeddings, vocab.word2idx, vocab.idx2word
         #set device
-        device = torch.device("cuda" if args.use_cuda else "cpu")
+        if args.use_cuda == True:
+            if torch.cuda.is_available() == False:
+                logging.info("GPU not available; defaulting to CPU")
+                devicename= 'cpu'
+            else:
+                logging.info("Using GPU")
+                devicename= 'cuda'
+        else:
+            devicename= 'cpu'
+        device = torch.device(devicename)
         cnn_model, train_features_file, val_features_file= init_model(args.model_name, args.feature_mode)
         
         train_shape, val_shape= get_feature_flat_dim(cnn_model.to('cpu'))
         img_feature_size= np.product(train_shape[1:])
-#        pdb.set_trace()
         #Construct decoder graph
         if args.feature_mode == 'features':
             decoder= DecoderfromFeatures(img_feature_size, emb_matrix, len(emb_matrix), 
@@ -358,6 +350,7 @@ if __name__ == "__main__":
                                          args.embed_size, args.num_layers, 
                                          args.hidden_size, word_to_idx).to(device)
         
+#        pdb.set_trace()
         train_dataloader, my_dset_train= get_dataloader(word_to_idx, 'train', train_shape, train_features_file,
                                                         vocab= vocab)
         val_dataloader, my_dset_val= get_dataloader(word_to_idx, 'val', val_shape, val_features_file,
@@ -370,9 +363,10 @@ if __name__ == "__main__":
         optimizer = optim.Adam(all_trainable_params, lr= args.learning_rate)
         test_steps= 10
         best_val_score= 0.0
+        all_scores_dict= None
+        cnn_model= cnn_model.to(device)
         for epoch in range(args.num_epochs):
             #Training
-#            pdb.set_trace()
             decoder.train()
             for i_batch, (img_features, targets_batch, rlen_batch, idx_batch) in enumerate(train_dataloader):
                 img_features, targets_batch= (img_features.to(device), 
@@ -399,12 +393,15 @@ if __name__ == "__main__":
                 # Save the model checkpoints
                 if (i_batch+1) % args.save_step == 0:
                     #Later make this to save only after running eval and if better than best_score
-                    save_weights(decoder, epoch, i_batch)
+                    model_path= save_weights(decoder, epoch, i_batch)
+                    if all_scores_dict is not None:
+                        write_scores(model_path, all_scores_dict)
             
-            curr_validation_score= evaluate(val_dataloader, decoder)
+            curr_validation_score, all_scores_dict= evaluate(val_dataloader, encoder= cnn_model, 
+                                                             decoder= decoder)
             
             if curr_validation_score > best_val_score:
                 #Save weights at end of the epoch; best weights can be ensembled
-                save_best_weights(decoder, epoch, i_batch)
-
+                best_model_path= save_best_weights(decoder, epoch, i_batch)
+                write_scores(best_model_path, all_scores_dict)
 

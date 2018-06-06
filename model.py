@@ -151,23 +151,22 @@ class DecoderfromFeatures(nn.Module):
         self.flatten= Flatten()
         self.lin_project_from_img = nn.Linear(img_feature_size, word_vec_size)
         self.emb_layer= nn.Embedding(vocab_size, word_vec_size)
-#        self.emb_layer.weight= nn.Parameter(torch.from_numpy(emb_mat.astype(np.float32)), 
-#                                            requires_grad= trainable_embeddings)
+        if args.pretrained_embeddings == True:
+            self.emb_layer.weight= nn.Parameter(torch.from_numpy(emb_mat.astype(np.float32)), 
+                                                requires_grad= trainable_embeddings)
         self.gru_layer= nn.GRU(input_size= word_vec_size, hidden_size= output_size, num_layers= num_layers,
                            dropout= dropout, batch_first= self.batch_first, bidirectional= bidirectional)
         self.vocab_project= nn.Linear(output_size, vocab_size)
         self.bn = nn.BatchNorm1d(word_vec_size, momentum=0.01)
-#        self.start_id= torch.tensor(word_to_idx[SpecialTokens.START], dtype= torch.long)
     
     def forward(self, img_rep, targets, real_lens):
 #        pdb.set_trace()
         img_flat= self.flatten(img_rep) # (b, C, H, W) 
-        img_projection= self.lin_project_from_img(img_flat) # (b, )
-        img_projection= self.bn(img_projection)
-        start_batch= img_projection.unsqueeze(1)
-        teacher_inps= targets[:, :-1]
+        img_projection= self.lin_project_from_img(img_flat) # (b, D)
+        img_projection= self.bn(img_projection) # (b, D)
+        start_batch= img_projection.unsqueeze(1) # (b, 1, D)
+        teacher_inps= targets[:, :-1] # (b, L-1) ints/word ids
         emb_inps= torch.cat([start_batch, self.emb_layer(teacher_inps)], dim= 1)
-#        real_lens+= 1
         real_lens= real_lens.clamp(0, self.max_seq_len)
         real_lens_sorted, idx = real_lens.sort(0, descending=True)
         emb_inps_sorted = emb_inps[idx]
@@ -180,6 +179,26 @@ class DecoderfromFeatures(nn.Module):
         out = unpacked_out[orig_idx]
         final_out= self.vocab_project(out)
         return final_out
+    
+    def inference(self, img_rep, states=None): #greedy
+        """Generate captions for given image features using greedy search."""
+        sampled_ids = []
+        img_flat= self.flatten(img_rep)
+        img_projection= self.lin_project_from_img(img_flat)
+        img_projection= self.bn(img_projection)
+        inp= img_projection.unsqueeze(1)
+        for step in range(self.max_seq_len):
+            if step == 0:
+                hiddens, states= self.gru_layer(inp)
+            else:
+                hiddens, states= self.gru_layer(inp, states)
+            outputs = self.vocab_project(hiddens.squeeze(1))            # outputs:  (B, V)
+            _, predicted = outputs.max(1)                               # predicted: (B)
+            sampled_ids.append(predicted)
+            inp = self.emb_layer(predicted)                       # inp: (B, D)
+            inp = inp.unsqueeze(1)                                # inp: (B, 1, D)
+        sampled_ids = torch.stack(sampled_ids, 1)                 # sampled_ids: (B, max_seq_length)
+        return sampled_ids
     
     def inference_sample(self, img_rep):
         img_flat= self.flatten(img_rep)
@@ -201,24 +220,6 @@ class DecoderfromFeatures(nn.Module):
 #        assert output_inds.size(1) == self.max_seq_len, "Incorrect sequence generated length"
         return output_inds
 
-    def inference(self, img_rep, states=None): #greedy
-        """Generate captions for given image features using greedy search."""
-        sampled_ids = []
-        img_flat= self.flatten(img_rep)
-        img_projection= self.lin_project_from_img(img_flat)
-        inp= img_projection.unsqueeze(1)
-        for step in range(self.max_seq_len):
-            if step == 0:
-                hiddens, states= self.gru_layer(inp)
-            else:
-                hiddens, states= self.gru_layer(inp, states)
-            outputs = self.vocab_project(hiddens.squeeze(1))            # outputs:  (batch_size, vocab_size)
-            _, predicted = outputs.max(1)                        # predicted: (batch_size)
-            sampled_ids.append(predicted)
-            inp = self.emb_layer(predicted)                       # inputs: (batch_size, embed_size)
-            inp = inp.unsqueeze(1)                         # inputs: (batch_size, 1, embed_size)
-        sampled_ids = torch.stack(sampled_ids, 1)                # sampled_ids: (batch_size, max_seq_length)
-        return sampled_ids
 
 class DecoderfromClassLogits(nn.Module):
     def __init__(self, img_feature_size, emb_mat, vocab_size, word_vec_size, num_layers, output_size, word_to_idx,
@@ -265,7 +266,7 @@ class DecoderfromClassLogits(nn.Module):
         final_out= self.vocab_project(out)
         return final_out
     
-    def inference(self, img_rep):
+    def inference_sample(self, img_rep):
 #        pdb.set_trace()
         _, argmax= torch.topk(img_rep, self.topk_classes, dim=1)
         class_emb= self.class_emb_layer(argmax)
@@ -284,8 +285,27 @@ class DecoderfromClassLogits(nn.Module):
             word_ind_list.append(word_inds)
             inp= self.emb_layer(word_inds)
         output_inds= torch.cat(word_ind_list, dim=1)
-        assert output_inds.size(1) == self.max_seq_len, "Incorrect sequence generated length"
+#        assert output_inds.size(1) == self.max_seq_len, "Incorrect sequence generated length"
         return output_inds
+    
+    def inference(self, img_rep, states=None): #greedy
+        """Generate captions for given image features using greedy search."""
+        sampled_ids = []
+        img_flat= self.flatten(img_rep)
+        img_projection= self.lin_project_from_img(img_flat)
+        inp= img_projection.unsqueeze(1)
+        for step in range(self.max_seq_len):
+            if step == 0:
+                hiddens, states= self.gru_layer(inp)
+            else:
+                hiddens, states= self.gru_layer(inp, states)
+            outputs = self.vocab_project(hiddens.squeeze(1))            # outputs:  (B, V)
+            _, predicted = outputs.max(1)                               # predicted: (B)
+            sampled_ids.append(predicted)
+            inp = self.emb_layer(predicted)                       # inp: (B, D)
+            inp = inp.unsqueeze(1)                                # inp: (B, 1, D)
+        sampled_ids = torch.stack(sampled_ids, 1)                 # sampled_ids: (B, max_seq_length)
+        return sampled_ids
 
 
 class DecoderfromFeatures2(nn.Module):
@@ -330,7 +350,7 @@ class DecoderfromFeatures2(nn.Module):
         final_out= self.vocab_project(out)
         return final_out
     
-    def inference(self, img_rep):
+    def inference_sample(self, img_rep):
         img_flat= self.flatten(img_rep)
         img_projection= self.lin_project_from_img(img_flat)
         inp= img_projection.unsqueeze(1)
