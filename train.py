@@ -12,6 +12,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 from torch.nn.utils.rnn import pad_packed_sequence, pack_padded_sequence
 import numpy as np
+import pandas as pd
 import torchvision.models as models
 import torchvision.datasets as dset
 import torchvision.transforms as transforms
@@ -21,10 +22,6 @@ import datetime
 from torch.utils.data import Dataset, DataLoader
 from nltk.tokenize import word_tokenize, sent_tokenize
 from tqdm import tqdm
-import logging
-logger = logging.getLogger("Training")
-logger.setLevel(logging.INFO)
-logging.basicConfig(format='%(levelname)s %(asctime)s : %(message)s', level=logging.INFO)
 
 from ipdb import slaunch_ipdb_on_exception
 import pdb
@@ -32,7 +29,8 @@ from saved_data import SavedData
 import dill as pickle
 from utils import (MyCOCODset, make_caption_word_dict, CocoDatasetDev,
                    CocoCaptions_Cust, CocoCaptions_Features, CocoCaptions_Features2)
-from model import Encoder, Decoder, fn, DecoderfromClassLogits, DecoderfromFeatures
+from model import (Encoder, Decoder, fn, DecoderfromClassLogits, 
+                   DecoderfromFeatures, AttentionDecoderClassLogits)
 from image_captioning.build_vocab import SpecialTokens
 
 import json
@@ -40,6 +38,22 @@ from pprint import pprint
 from config import args
 from scores import get_scores_im, get_scores
 
+import logging
+logger = logging.getLogger("Training")
+logger.setLevel(logging.INFO)
+logging.basicConfig(format='%(levelname)s %(asctime)s : %(message)s', level=logging.INFO)
+
+log_output= 'logging_' + args.model_name + args.feature_mode + str(args.is_attention).lower()
+handler = logging.FileHandler(log_output)
+handler.setLevel(logging.INFO)
+handler.setFormatter(logging.Formatter('%(levelname)s %(asctime)s : %(message)s'))
+logging.getLogger().addHandler(handler)
+
+from collections import defaultdict
+
+#Writing the hyperparameters to log file
+for k, v in vars(args).items():
+    logging.info("{}: {}".format(k, v))
 
 def collate_fn(data):
     """Creates mini-batch tensors from the list of tuples (image, caption).
@@ -108,27 +122,6 @@ def get_dataloader(token_dict, mode= 'train', feature_shape= None,
         raise NotImplementedError("Only validation and train")
 
 
-def get_loader(root, json, vocab, transform, batch_size, shuffle, num_workers):
-    """Returns torch.utils.data.DataLoader for custom coco dataset."""
-    # COCO caption dataset
-    coco = CocoDataset(root=root,
-                       json=json,
-                       vocab=vocab,
-                       transform=transform)
-    
-    # Data loader for COCO dataset
-    # This will return (images, captions, lengths) for each iteration.
-    # images: a tensor of shape (batch_size, 3, 224, 224).
-    # captions: a tensor of shape (batch_size, padded_length).
-    # lengths: a list indicating valid length for each caption. length is (batch_size).
-    data_loader = torch.utils.data.DataLoader(dataset=coco, 
-                                              batch_size=batch_size,
-                                              shuffle=shuffle,
-                                              num_workers=num_workers,
-                                              collate_fn=collate_fn)
-    return data_loader
-
-
 def get_trainable_params(params):
     tr_params= []
     for param in params:
@@ -171,7 +164,8 @@ def save_to_json(val_gen_words_dict, metrics= None):
         temp_dict["caption"]= str(v)
         temp_list.append(temp_dict)
     
-    resFile='./evaluate/results/captions_val2017_fakecap_results.json'
+    resFile='./evaluate/results/captions_val2017_results_' + \
+                args.model_name + '_' + args.feature_mode + '_' + str(args.is_attention).lower() + '.json'
     with open(resFile, 'w') as out:
         json.dump(temp_list, out)
     
@@ -219,7 +213,7 @@ def init_model(model_name, feature_mode):
     resnet101 = models.resnet101(pretrained=True)
     resnet152 = models.resnet152(pretrained=True)
     alexnet = models.alexnet(pretrained=True)
-    squeezenet = models.squeezenet1_0(pretrained=True)
+    squeezenet = models.squeezenet1_1(pretrained=True)
     vgg16 = models.vgg16(pretrained=True)
     densenet = models.densenet161(pretrained=True)
     inception = models.inception_v3(pretrained=True)
@@ -271,7 +265,7 @@ def get_feature_flat_dim(model):
     return train_shape, val_shape
 
 
-def evaluate(val_dataloader, encoder, decoder):
+def evaluate(val_dataloader, encoder, decoder, idx_to_word, device, epoch, best_validation_score):
 #    pdb.set_trace()
     encoder.eval()
     decoder.eval()
@@ -306,102 +300,156 @@ def evaluate(val_dataloader, encoder, decoder):
             temp.append(word)
         sentence= ' '.join(temp)
         val_gen_words_dict[key]= re.sub(SpecialTokens().START, "", sentence)
-    save_to_json(val_gen_words_dict)
     validation_score, all_scores= evaluate_captions(val_gen_words_dict)
+    if validation_score > best_validation_score:
+        save_to_json(val_gen_words_dict)
     logging.info("Epoch {} validation captions saved to".format(epoch, args.output_json))
+    decoder.train()
     return validation_score, all_scores
 
 
-def write_scores(model_path, model_scores_dict, filename= 'val_scores.txt'):
-    with open(os.path.join(model_path, filename), 'a') as fin:
+def write_scores(model_path, model_scores_dict, ddict= None):
+#    pdb.set_trace()
+    with open(os.path.join(model_path, 'val_scores.txt'), 'a') as fout:
         for k, v in model_scores_dict.items():
-            fin.write(str(k) + " : " + str(v) + "\n")
-        fin.write('\n\n\n')
-
-
-if __name__ == "__main__":
-    with slaunch_ipdb_on_exception():
-#        pdb.set_trace()
-        with open(args.save_data_fname, 'rb') as input_:
-            vocab= pickle.load(input_)
-            emb_matrix, word_to_idx, idx_to_word= vocab.word_embeddings, vocab.word2idx, vocab.idx2word
-        #set device
-        if args.use_cuda == True:
-            if torch.cuda.is_available() == False:
-                logging.info("GPU not available; defaulting to CPU")
-                devicename= 'cpu'
-            else:
-                logging.info("Using GPU")
-                devicename= 'cuda'
-        else:
-            devicename= 'cpu'
-        device = torch.device(devicename)
-        cnn_model, train_features_file, val_features_file= init_model(args.model_name, args.feature_mode)
+            fout.write(str(k) + " : " + str(v) + "\n")
+        fout.write('\n\n\n')
+    
+    if ddict is not None:
+        loss_csv= os.path.join(model_path, 'loss_record.csv')
+        loss_df= pd.DataFrame(ddict['loss'])
+        loss_df.to_csv(loss_csv)
         
-        train_shape, val_shape= get_feature_flat_dim(cnn_model.to('cpu'))
-        img_feature_size= np.product(train_shape[1:])
-        #Construct decoder graph
-        if args.feature_mode == 'features':
-            decoder= DecoderfromFeatures(img_feature_size, emb_matrix, len(emb_matrix), 
+        with open(os.path.join(model_path, 'full_record.pkl'), 'wb') as fout:
+            pickle.dump(ddict, fout)
+
+
+def count_params(model, parameters= None):
+    if parameters is None:
+        parameters= model.parameters()
+    param_size_list= []
+    for param in parameters:
+        param_size_list.append(np.product(param.size()))
+    print("Total Model parameters = {}".format(np.sum(param_size_list)))
+    param_size_list= []
+    for param in parameters:
+        if param.requires_grad:
+            param_size_list.append(np.product(param.size()))
+    print("Total Model trainable parameters = {}".format(np.sum(param_size_list)))
+
+
+def main():
+#    pdb.set_trace()
+    with open(args.save_data_fname, 'rb') as input_:
+        vocab= pickle.load(input_)
+        emb_matrix, word_to_idx, idx_to_word= vocab.word_embeddings, vocab.word2idx, vocab.idx2word
+    #set device
+    if args.use_cuda == True:
+        if torch.cuda.is_available() == False:
+            logging.info("GPU not available; defaulting to CPU")
+            devicename= 'cpu'
+        else:
+            logging.info("Using GPU")
+            devicename= 'cuda'
+    else:
+        devicename= 'cpu'
+    device = torch.device(devicename)
+    cnn_model, train_features_file, val_features_file= init_model(args.model_name, args.feature_mode)
+    
+    train_shape, val_shape= get_feature_flat_dim(cnn_model.to('cpu'))
+    img_feature_size= np.product(train_shape[1:])
+    #Construct decoder graph
+    if args.feature_mode == 'features':
+        decoder= DecoderfromFeatures(img_feature_size, emb_matrix, len(emb_matrix), 
+                                     args.embed_size, args.num_layers, 
+                                     args.hidden_size, word_to_idx).to(device)
+    else:
+        if args.is_attention:
+            decoder= AttentionDecoderClassLogits(img_feature_size, emb_matrix, len(emb_matrix), 
                                          args.embed_size, args.num_layers, 
                                          args.hidden_size, word_to_idx).to(device)
         else:
             decoder= DecoderfromClassLogits(img_feature_size, emb_matrix, len(emb_matrix), 
                                          args.embed_size, args.num_layers, 
                                          args.hidden_size, word_to_idx).to(device)
-        
+    
 #        pdb.set_trace()
-        train_dataloader, my_dset_train= get_dataloader(word_to_idx, 'train', train_shape, train_features_file,
-                                                        vocab= vocab)
-        val_dataloader, my_dset_val= get_dataloader(word_to_idx, 'val', val_shape, val_features_file,
+    train_dataloader, my_dset_train= get_dataloader(word_to_idx, 'train', train_shape, train_features_file,
                                                     vocab= vocab)
+    val_dataloader, my_dset_val= get_dataloader(word_to_idx, 'val', val_shape, val_features_file,
+                                                vocab= vocab)
+    
+    vocab_size= len(emb_matrix)
+    loss_function = nn.CrossEntropyLoss(reduce= False)
+    all_trainable_params= get_trainable_params(list(decoder.parameters()))
+    optimizer = optim.Adam(all_trainable_params, lr= args.learning_rate)
+    test_steps= 10
+    best_val_score= 0.0 #Check against validation score after every epoch (or few steps)
+    all_scores_dict= None
+    cnn_model= cnn_model.to(device)
+    count_params(decoder)
+#    pdb.set_trace()
+    record_dict= defaultdict(list)
+    for epoch in range(args.num_epochs):
+        #Training
+        decoder.train()
+        for i_batch, (img_features, targets_batch, rlen_batch, idx_batch) in enumerate(train_dataloader):
+            img_features, targets_batch= (img_features.to(device), 
+                                          targets_batch.to(device))
+            rlen_batch= rlen_batch.to(device)
+            predictions= decoder(img_features, targets_batch, rlen_batch)
+            targets_batch= targets_batch.view(-1)
+            predictions= predictions.view(-1, vocab_size)
+            loss_matrix= loss_function(predictions, targets_batch)
+            mask= 1 - targets_batch.eq(word_to_idx[SpecialTokens().PAD])
+            loss= torch.mean(loss_matrix.masked_select(mask))
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+            
+            record_dict['loss'].append(loss.detach().cpu().numpy())
+#            if i_batch >= test_steps:
+#                break
+            
+            # Print log info
+            if i_batch % args.log_step == 0:
+                logging.info('Epoch [{}/{}], Train Step {}, Train Loss: {:.4f}, Train Perplexity: {:5.4f}'
+                      .format(epoch, args.num_epochs, i_batch, loss.item(), np.exp(loss.item()))) 
+                
+            # Save the model checkpoints
+            if (i_batch+1) % args.save_step == 0:
+                #Later make this to save only after running eval and if better than best_score
+                model_path= save_weights(decoder, epoch, i_batch)
+#                if all_scores_dict is not None:
+#                    write_scores(model_path, all_scores_dict)
+            
+            if args.intra_epoch_eval == True:
+                if i_batch > 0 and i_batch % args.eval_frequency == 0:
+                    curr_validation_score, all_scores_dict= evaluate(val_dataloader, encoder= cnn_model, 
+                                                     decoder= decoder, idx_to_word= idx_to_word, 
+                                                     device= device, epoch= epoch,
+                                                     best_validation_score= best_val_score)
+                    if curr_validation_score > best_val_score:
+                        #Save weights at end of the epoch; best weights can be ensembled
+                        best_model_path= save_best_weights(decoder, epoch, i_batch)
+                        best_val_score= curr_validation_score
+                        record_dict['best_val_score'].append(best_val_score)
+                        record_dict['all_scores_dict'].append(all_scores_dict)
+                        write_scores(best_model_path, all_scores_dict, record_dict)
         
-        vocab_size= len(emb_matrix)
-        best_score= 0.0 #Check against validation score after every epoch (or few steps)
-        loss_function = nn.CrossEntropyLoss(reduce= False)
-        all_trainable_params= get_trainable_params(list(decoder.parameters()))
-        optimizer = optim.Adam(all_trainable_params, lr= args.learning_rate)
-        test_steps= 10
-        best_val_score= 0.0
-        all_scores_dict= None
-        cnn_model= cnn_model.to(device)
-        for epoch in range(args.num_epochs):
-            #Training
-            decoder.train()
-            for i_batch, (img_features, targets_batch, rlen_batch, idx_batch) in enumerate(train_dataloader):
-                img_features, targets_batch= (img_features.to(device), 
-                                              targets_batch.to(device))
-                rlen_batch= rlen_batch.to(device)
-                predictions= decoder(img_features, targets_batch, rlen_batch)
-                targets_batch= targets_batch.view(-1)
-                predictions= predictions.view(-1, vocab_size)
-                loss_matrix= loss_function(predictions, targets_batch)
-                mask= 1 - targets_batch.eq(word_to_idx[SpecialTokens().PAD])
-                loss= torch.mean(loss_matrix.masked_select(mask))
-                optimizer.zero_grad()
-                loss.backward()
-                optimizer.step()
-                
-#                if i_batch >= test_steps:
-#                    break
-                
-                # Print log info
-                if i_batch % args.log_step == 0:
-                    logging.info('Epoch [{}/{}], Train Step {}, Train Loss: {:.4f}, Train Perplexity: {:5.4f}'
-                          .format(epoch, args.num_epochs, i_batch, loss.item(), np.exp(loss.item()))) 
-                    
-                # Save the model checkpoints
-                if (i_batch+1) % args.save_step == 0:
-                    #Later make this to save only after running eval and if better than best_score
-                    model_path= save_weights(decoder, epoch, i_batch)
-                    if all_scores_dict is not None:
-                        write_scores(model_path, all_scores_dict)
-            
-            curr_validation_score, all_scores_dict= evaluate(val_dataloader, encoder= cnn_model, 
-                                                             decoder= decoder)
-            
-            if curr_validation_score > best_val_score:
-                #Save weights at end of the epoch; best weights can be ensembled
-                best_model_path= save_best_weights(decoder, epoch, i_batch)
-                write_scores(best_model_path, all_scores_dict)
+        curr_validation_score, all_scores_dict= evaluate(val_dataloader, encoder= cnn_model, 
+                                                 decoder= decoder, idx_to_word= idx_to_word, 
+                                                 device= device, epoch= epoch,
+                                                 best_validation_score= best_val_score)
+        
+        if curr_validation_score > best_val_score:
+            #Save weights at end of the epoch; best weights can be ensembled
+            best_model_path= save_best_weights(decoder, epoch, i_batch)
+            best_val_score= curr_validation_score
+            record_dict['best_val_score'].append(best_val_score)
+            record_dict['all_scores_dict'].append(all_scores_dict)
+            write_scores(best_model_path, all_scores_dict, record_dict)
 
+if __name__ == "__main__":
+    with slaunch_ipdb_on_exception():
+        main()

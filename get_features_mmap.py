@@ -102,7 +102,7 @@ resnet50 = models.resnet50(pretrained=True)
 resnet101 = models.resnet101(pretrained=True)
 resnet152 = models.resnet152(pretrained=True)
 alexnet = models.alexnet(pretrained=True)
-squeezenet = models.squeezenet1_0(pretrained=True)
+squeezenet = models.squeezenet1_1(pretrained=True)
 vgg16 = models.vgg16(pretrained=True)
 densenet = models.densenet161(pretrained=True)
 inception = models.inception_v3(pretrained=True)
@@ -204,7 +204,7 @@ if __name__ == "__main__":
                     'inception': inception,
                     }
 
-        models_to_run= ['alexnet', 'squeezenet', 'resnet18']
+        models_to_run= ['squeezenet']
 
         for model_name in models_to_run:
             model_dict[model_name]= get_model_wo_last_n_layers(model_dict[model_name])

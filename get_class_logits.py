@@ -153,7 +153,7 @@ model_dict= {'resnet18': resnet18,
              'inception': inception,
              }
 
-models_to_run= ['alexnet', 'resnet34', 'vgg16',  'densenet']
+models_to_run= ['resnet152']
 
 for model_name in models_to_run:
     run_cnn_models(model_dict, model_name)
