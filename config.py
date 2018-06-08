@@ -43,7 +43,7 @@ parser.add_argument('--preprocess', type=ast.literal_eval , default=True, help='
 parser.add_argument('--use_cuda', type=ast.literal_eval, default=True, help='whether to use GPU')
 parser.add_argument('--save_data_fname', type=str , default='/home/hanozbhathena/project/data/vocab.pkl', 
                     help='file to save/load embedding matrix and word_to_idx dict')
-parser.add_argument('--max_seq_len', type=int , default=40, help='maximum unrolling length')
+parser.add_argument('--max_seq_len', type=int , default=20, help='maximum unrolling length')
 parser.add_argument('--output_json', type=str, 
                     default='val_generated_capts.json', 
                     help='val generated captions filename')
@@ -52,9 +52,13 @@ parser.add_argument('--pretrained_embeddings', type=ast.literal_eval, default=Fa
                     help='whether to use pre trained embeddings or train embeddings from scratch')
 parser.add_argument('--intra_epoch_eval', type=ast.literal_eval , default=True, 
                     help='whether to run eval on validation set before epoch over')
-parser.add_argument('--eval_frequency', type=int, default=1000,
+parser.add_argument('--eval_frequency', type=int, default=2000,
                     help='if intra_epoch_eval is true then the number of steps between running evaluation')
-parser.add_argument('--is_attention', type=ast.literal_eval , default=False, 
+parser.add_argument('--is_attention', type=ast.literal_eval , default=True, 
+                    help='whether to use attention or not')
+parser.add_argument('--class_attention', type=ast.literal_eval , default=True, 
+                    help='whether to run class attention or not')
+parser.add_argument('--decoder_attention', type=ast.literal_eval , default=True, 
                     help='whether to run intra-decoder attention or not')
 
 #Training parameters

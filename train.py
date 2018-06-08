@@ -30,7 +30,8 @@ import dill as pickle
 from utils import (MyCOCODset, make_caption_word_dict, CocoDatasetDev,
                    CocoCaptions_Cust, CocoCaptions_Features, CocoCaptions_Features2)
 from model import (Encoder, Decoder, fn, DecoderfromClassLogits, 
-                   DecoderfromFeatures, AttentionDecoderClassLogits)
+                   DecoderfromFeatures, AttentionDecoderClassLogits,
+                   AttentionEncoderClassLogits, AttentionEncoderDecoderClassLogits)
 from image_captioning.build_vocab import SpecialTokens
 
 import json
@@ -338,6 +339,40 @@ def count_params(model, parameters= None):
     print("Total Model trainable parameters = {}".format(np.sum(param_size_list)))
 
 
+def build_decoder(img_feature_size, emb_matrix, word_to_idx):
+    #Construct decoder graph
+    if args.feature_mode == 'features':
+        logging.info("Feature mode")
+        decoder= DecoderfromFeatures(img_feature_size, emb_matrix, len(emb_matrix), 
+                                     args.embed_size, args.num_layers, 
+                                     args.hidden_size, word_to_idx)
+    else:
+        if args.is_attention:
+            logging.info("Class Embedding mode")
+            if args.class_attention == True and args.decoder_attention == True:
+                logging.info("Double attention")
+                decoder= AttentionEncoderDecoderClassLogits(img_feature_size, emb_matrix, len(emb_matrix), 
+                                             args.embed_size, args.num_layers, 
+                                             args.hidden_size, word_to_idx)
+            elif args.class_attention == True and args.decoder_attention == False:
+                logging.info("Class only attention")
+                decoder= AttentionEncoderClassLogits(img_feature_size, emb_matrix, len(emb_matrix), 
+                                             args.embed_size, args.num_layers, 
+                                             args.hidden_size, word_to_idx)
+            elif args.class_attention == False and args.decoder_attention == True:
+                logging.info("Decoder only attention")
+                decoder= AttentionDecoderClassLogits(img_feature_size, emb_matrix, len(emb_matrix), 
+                                             args.embed_size, args.num_layers, 
+                                             args.hidden_size, word_to_idx)
+        else:
+            logging.info("No attention")
+            decoder= DecoderfromClassLogits(img_feature_size, emb_matrix, len(emb_matrix), 
+                                         args.embed_size, args.num_layers, 
+                                         args.hidden_size, word_to_idx)
+    
+    return decoder
+
+
 def main():
 #    pdb.set_trace()
     with open(args.save_data_fname, 'rb') as input_:
@@ -358,22 +393,8 @@ def main():
     
     train_shape, val_shape= get_feature_flat_dim(cnn_model.to('cpu'))
     img_feature_size= np.product(train_shape[1:])
-    #Construct decoder graph
-    if args.feature_mode == 'features':
-        decoder= DecoderfromFeatures(img_feature_size, emb_matrix, len(emb_matrix), 
-                                     args.embed_size, args.num_layers, 
-                                     args.hidden_size, word_to_idx).to(device)
-    else:
-        if args.is_attention:
-            decoder= AttentionDecoderClassLogits(img_feature_size, emb_matrix, len(emb_matrix), 
-                                         args.embed_size, args.num_layers, 
-                                         args.hidden_size, word_to_idx).to(device)
-        else:
-            decoder= DecoderfromClassLogits(img_feature_size, emb_matrix, len(emb_matrix), 
-                                         args.embed_size, args.num_layers, 
-                                         args.hidden_size, word_to_idx).to(device)
     
-#        pdb.set_trace()
+    decoder= build_decoder(img_feature_size, emb_matrix, word_to_idx).to(device)
     train_dataloader, my_dset_train= get_dataloader(word_to_idx, 'train', train_shape, train_features_file,
                                                     vocab= vocab)
     val_dataloader, my_dset_val= get_dataloader(word_to_idx, 'val', val_shape, val_features_file,
@@ -388,7 +409,7 @@ def main():
     all_scores_dict= None
     cnn_model= cnn_model.to(device)
     count_params(decoder)
-#    pdb.set_trace()
+    pdb.set_trace()
     record_dict= defaultdict(list)
     for epoch in range(args.num_epochs):
         #Training
